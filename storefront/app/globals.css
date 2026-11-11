@@ -1,0 +1,178 @@
+@import "tailwindcss";
+
+/* Paleta y tipografía de la marca. Para otro cliente se cambia acá (y las
+   fuentes en app/layout.tsx); los componentes solo usan estos nombres. */
+@theme {
+  --color-ink: #0d0d0d;
+  --color-ink-2: #1b1b1b;
+  --color-ink-line: #2c2c2c;
+  --color-paper: #f5f4f1;
+  --color-muted: #5f5d58;
+  --color-line: #e3e0da;
+  --color-accent: #1f5fd6;
+  --color-whatsapp: #25d366;
+  --color-star: #f5c542;
+
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-figtree), "Helvetica Neue", Arial, sans-serif;
+
+  --radius-card: 14px;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 88px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+}
+
+@utility wrap {
+  width: min(1200px, 100% - 2.5rem);
+  margin-inline: auto;
+}
+
+@utility section-y {
+  padding-block: clamp(4rem, 9vw, 7rem);
+}
+
+@utility h2-display {
+  font-size: clamp(2rem, 4.6vw, 3.2rem);
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    padding: 0.9rem 1.4rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.98rem;
+    line-height: 1;
+    text-decoration: none;
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    transition:
+      transform 0.15s,
+      background 0.2s,
+      color 0.2s,
+      border-color 0.2s;
+  }
+  .btn:active {
+    transform: scale(0.98);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .btn svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+  .btn-light {
+    background: #fff;
+    color: var(--color-ink);
+  }
+  .btn-light:hover {
+    background: #e9e7e2;
+  }
+  .btn-outline-light {
+    border-color: rgb(255 255 255 / 0.45);
+    color: #fff;
+  }
+  .btn-outline-light:hover {
+    border-color: #fff;
+    background: rgb(255 255 255 / 0.08);
+  }
+  .btn-dark {
+    background: var(--color-ink);
+    color: #fff;
+  }
+  .btn-dark:hover:not(:disabled) {
+    background: #333;
+  }
+  .btn-outline {
+    border-color: var(--color-ink);
+    color: var(--color-ink);
+  }
+  .btn-outline:hover {
+    background: var(--color-ink);
+    color: #fff;
+  }
+  .btn-sm {
+    padding: 0.6rem 1.05rem;
+    font-size: 0.92rem;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    font-weight: 600;
+    font-size: 0.95rem;
+    line-height: 1;
+    padding: 0.7rem 1.15rem;
+    border-radius: 999px;
+    border: 1.5px solid var(--color-line);
+    background: #fff;
+    color: var(--color-ink);
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip[aria-pressed="true"],
+  .chip[aria-current="true"] {
+    background: var(--color-ink);
+    border-color: var(--color-ink);
+    color: #fff;
+  }
+
+  .field {
+    width: 100%;
+    background: #fff;
+    border: 1.5px solid var(--color-line);
+    border-radius: 10px;
+    padding: 0.75rem 0.9rem;
+    font-size: 1rem;
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-ink);
+  }
+  .field-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    margin-bottom: 0.35rem;
+  }
+}
