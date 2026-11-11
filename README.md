@@ -120,6 +120,5 @@ funciona como tienda real.
 - Pasarela de pago online: la elige el cliente (Pagopar ya no existe).
 - Datos reales de transferencia en `brand.payment`.
 - Catálogo completo del cliente (con tipo, color y malla cargados).
-- Deploy en Railway (storefront + backend + Postgres + Redis en un solo proyecto).
-- Las imágenes de productos se guardan en disco (`backend/static`): en el deploy
-  hace falta un volumen o un storage tipo S3/R2 para que no se pierdan.
+- Deploy en Railway: paso a paso en [DEPLOY.md](DEPLOY.md) (un solo proyecto:
+  Postgres + backend + storefront; las fotos van en un volumen).

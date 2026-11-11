@@ -39,6 +39,18 @@ export default async function initial_data_seed({
     ModuleRegistrationName.FULFILLMENT
   );
 
+  // Medusa registra los scripts por nombre de archivo: el mismo seed como .ts
+  // (desarrollo) y como .js (build de producción) cuenta como dos scripts. Si
+  // la base ya tiene los datos, no se crean duplicados.
+  const { data: existingRegions } = await query.graph({
+    entity: "region",
+    fields: ["id"],
+  });
+  if (existingRegions.length) {
+    logger.info("Initial data already present, skipping seed.");
+    return;
+  }
+
   logger.info("Seeding store data...");
   const {
     result: [defaultSalesChannel],

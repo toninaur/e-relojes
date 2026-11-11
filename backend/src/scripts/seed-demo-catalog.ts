@@ -48,7 +48,11 @@ const DEMO_STOCK = 5
 const FEATURED_TAG = 'destacado'
 const SALE_LIST_TITLE = 'Ofertas'
 const DEMO_PROMO_CODE = 'BIENVENIDA10'
-const IMAGES_DIR = path.join(process.cwd(), 'demo-catalog')
+// En producción el seed corre desde el build (.medusa/server), que no tiene
+// las fotos: scripts/start-production.sh le pasa la carpeta original.
+const IMAGES_DIR = process.env.DEMO_CATALOG_DIR
+  ? path.resolve(process.env.DEMO_CATALOG_DIR)
+  : path.join(process.cwd(), 'demo-catalog')
 
 const CATEGORIES = ['Caballeros', 'Damas', 'Casio', 'Perfumes', 'Accesorios']
 const OLD_DEMO_HANDLES = ['reloj-clasico', 'reloj-deportivo', 'malla-de-cuero']
