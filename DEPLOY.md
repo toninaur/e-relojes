@@ -24,9 +24,9 @@ poco tráfico anda en USD 5–15/mes.
 
 1. **+ New → GitHub Repo** → este repo. Renombrar el servicio a `backend`.
 2. **Settings:**
-   - *Source → Root Directory:* `e-commerce`
-   - *Source → Branch:* la rama a publicar.
-   - *Config-as-code → Railway Config File:* `/e-commerce/backend/railway.json`
+   - *Source → Root Directory:* vacío (la raíz del repo).
+   - *Source → Branch:* `main`.
+   - *Config-as-code → Railway Config File:* `/backend/railway.json`
    - *Networking → Generate Domain* (puerto 9000).
 3. **Variables** (las `${{…}}` son referencias de Railway, se escriben tal cual):
 
@@ -63,8 +63,8 @@ poco tráfico anda en USD 5–15/mes.
 ## 3. Storefront
 
 1. **+ New → GitHub Repo** → el mismo repo. Renombrar a `storefront`.
-2. **Settings:** Root Directory `e-commerce`, la misma rama, Config File
-   `/e-commerce/storefront/railway.json`, *Generate Domain* (puerto 8080 o el
+2. **Settings:** Root Directory vacío, rama `main`, Config File
+   `/storefront/railway.json`, *Generate Domain* (puerto 8080 o el
    que Railway sugiera).
 3. **Variables:**
 

@@ -1,12 +1,10 @@
-# E-commerce
+# e-relojes — tienda online
 
 Tienda online: un backend [Medusa](https://docs.medusajs.com) (admin, catálogo,
-pedidos, stock, promociones) y un storefront en Next.js. Es un monorepo propio,
-**independiente de los workspaces de la raíz** (`apps/`, `packages/`): tiene su
-propio `package.json`, `package-lock.json` y `turbo.json`.
+pedidos, stock, promociones) y un storefront en Next.js, en un monorepo con
+npm workspaces.
 
 ```
-e-commerce/
 ├── backend/      # Medusa 2 (@erelojes/backend) — API en :9000, admin en :9000/app
 └── storefront/   # Next.js (@erelojes/storefront) — :8000
 ```
@@ -20,7 +18,6 @@ e-commerce/
 ## Levantar en local
 
 ```bash
-cd e-commerce
 npm install
 
 # 1. Backend
