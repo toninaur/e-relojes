@@ -26,12 +26,16 @@ poco tráfico anda en USD 5–15/mes.
 2. **Settings:**
    - *Source → Root Directory:* vacío (la raíz del repo).
    - *Source → Branch:* `main`.
-   - *Config-as-code → Railway Config File:* `/backend/railway.json`
+   - *Build → Custom Build Command:* `npm run build -w @erelojes/backend`
+   - *Deploy → Custom Start Command:* `sh backend/scripts/start-production.sh`
+   - *Deploy → Healthcheck Path:* `/health` (timeout 600 s: el primer arranque
+     migra la base y sube las fotos).
    - *Networking → Generate Domain* (puerto 9000).
 3. **Variables** (las `${{…}}` son referencias de Railway, se escriben tal cual):
 
    ```
    NODE_ENV=production
+   PORT=9000
    DATABASE_URL=${{Postgres.DATABASE_URL}}
    MEDUSA_BACKEND_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
    ADMIN_CORS=https://${{RAILWAY_PUBLIC_DOMAIN}}
@@ -63,12 +67,14 @@ poco tráfico anda en USD 5–15/mes.
 ## 3. Storefront
 
 1. **+ New → GitHub Repo** → el mismo repo. Renombrar a `storefront`.
-2. **Settings:** Root Directory vacío, rama `main`, Config File
-   `/storefront/railway.json`, *Generate Domain* (puerto 8080 o el
-   que Railway sugiera).
+2. **Settings:** Root Directory vacío, rama `main`, Build Command
+   `npm run build -w @erelojes/storefront`, Start Command
+   `npm run start -w @erelojes/storefront`, Healthcheck Path `/`,
+   *Generate Domain* (puerto 8080).
 3. **Variables:**
 
    ```
+   PORT=8080
    NEXT_PUBLIC_MEDUSA_BACKEND_URL=https://${{backend.RAILWAY_PUBLIC_DOMAIN}}
    NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=<la clave del paso 2.7>
    NEXT_PUBLIC_SITE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
