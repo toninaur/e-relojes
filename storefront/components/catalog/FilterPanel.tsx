@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Check } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { catalogHref, toggleHref, stateToEntries, type CatalogState, type ListParam } from '@/lib/catalog-url'
 import { PRICE_RANGES } from '@/lib/medusa/search'
 import { formatMoney } from '@/lib/format'
@@ -23,8 +23,27 @@ export interface FilterSection {
 // Cuántas opciones se ven antes de "Ver más".
 const VISIBLE_OPTIONS = 8
 
-const sectionCls = 'border-b border-line py-5 first:pt-0'
-const titleCls = 'text-[0.82rem] font-bold tracking-[0.08em] uppercase text-muted mb-3'
+// Abiertos al entrar: los primeros filtros y los que tienen algo elegido.
+const OPEN_BY_DEFAULT: string[] = ['tipo', 'categoria']
+
+const sectionCls = 'group border-b border-line py-4 first:pt-0'
+const titleCls = 'text-[0.82rem] font-bold tracking-[0.08em] uppercase text-muted'
+
+/** Sección desplegable (details nativo: anda sin JavaScript y con teclado). */
+function Section({ title, open, children }: { title: string; open: boolean; children: React.ReactNode }) {
+  return (
+    <details className={sectionCls} open={open}>
+      <summary className="flex items-center justify-between gap-3 cursor-pointer list-none py-1 [&::-webkit-details-marker]:hidden">
+        <h2 className={titleCls}>{title}</h2>
+        <ChevronDown
+          aria-hidden
+          className="w-4 h-4 text-muted shrink-0 transition-transform duration-200 group-open:rotate-180"
+        />
+      </summary>
+      <div className="pt-2">{children}</div>
+    </details>
+  )
+}
 
 function OptionLink({ href, option }: { href: string; option: FilterOption }) {
   const empty = option.count === 0 && !option.selected
@@ -83,8 +102,11 @@ export default function FilterPanel({
           const visible = section.options.slice(0, VISIBLE_OPTIONS)
           const rest = section.options.slice(VISIBLE_OPTIONS)
           return (
-            <section key={section.param} className={sectionCls} aria-label={section.title}>
-              <h2 className={titleCls}>{section.title}</h2>
+            <Section
+              key={section.param}
+              title={section.title}
+              open={OPEN_BY_DEFAULT.includes(section.param) || section.options.some((o) => o.selected)}
+            >
               {visible.map((o) => (
                 <OptionLink key={o.value} option={o} href={toggleHref(state, section.param, o.value)} />
               ))}
@@ -98,12 +120,11 @@ export default function FilterPanel({
                   ))}
                 </details>
               )}
-            </section>
+            </Section>
           )
         })}
 
-      <section className={sectionCls} aria-label="Precio">
-        <h2 className={titleCls}>Precio</h2>
+      <Section title="Precio" open={state.min !== null || state.max !== null}>
         {PRICE_RANGES.map((range) => {
           const from: number | null = 'from' in range ? range.from : null
           const upper: number | null = 'to' in range ? range.to : null
@@ -157,16 +178,15 @@ export default function FilterPanel({
             Aplicar precio
           </button>
         </form>
-      </section>
+      </Section>
 
       {(onSaleCount > 0 || state.oferta) && (
-        <section className={sectionCls} aria-label="Ofertas">
-          <h2 className={titleCls}>Ofertas</h2>
+        <Section title="Ofertas" open={state.oferta}>
           <OptionLink
             option={{ value: '1', label: 'Solo productos en oferta', count: onSaleCount, selected: state.oferta }}
             href={catalogHref(state, { oferta: !state.oferta })}
           />
-        </section>
+        </Section>
       )}
     </div>
   )
