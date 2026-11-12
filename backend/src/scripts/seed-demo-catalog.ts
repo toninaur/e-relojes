@@ -56,11 +56,15 @@ const IMAGES_DIR = process.env.DEMO_CATALOG_DIR
   ? path.resolve(process.env.DEMO_CATALOG_DIR)
   : path.join(process.cwd(), 'demo-catalog')
 
-const CATEGORIES = ['Caballeros', 'Damas', 'Casio', 'Perfumes', 'Accesorios']
+// Las categorías, tipos y marcas del catálogo completo las crea la migración
+// catalog-taxonomy; acá se aseguran solo las que usan los productos de demo.
+const PERFUMES = 'Perfumes y decants'
+const JEWELRY = 'Joyas y pulseras'
+const CATEGORIES = ['Caballeros', 'Damas', 'Casio', PERFUMES, JEWELRY]
 const OLD_DEMO_HANDLES = ['reloj-clasico', 'reloj-deportivo', 'malla-de-cuero']
 const OLD_DEMO_CATEGORIES = ['Relojes']
 
-const TYPE_BY_CATEGORY: Record<string, string> = { Perfumes: 'Perfume', Accesorios: 'Accesorio' }
+const TYPE_BY_CATEGORY: Record<string, string> = { [PERFUMES]: 'Decant', [JEWELRY]: 'Joya' }
 const DEFAULT_TYPE = 'Reloj'
 const PRODUCT_TYPES = [DEFAULT_TYPE, ...Object.values(TYPE_BY_CATEGORY)]
 
@@ -125,12 +129,12 @@ const PRODUCTS: DemoProduct[] = [
   { handle: 'michael-kors-mk5774', category: 'Damas', brand: 'Michael Kors', title: 'Michael Kors MK5774', sku: 'MK5774', image: 'mk5774.jpg', specs: ['Cronógrafo', '39 mm', 'Sumergible 10 ATM'], price: 1350000, featured: true },
   { handle: 'fossil-es5463', category: 'Damas', brand: 'Fossil', title: 'Fossil ES5463', sku: 'ES5463', image: 'fossil-es5463.jpg', specs: ['Malla mesh de acero', '28 mm', 'Sumergible 5 ATM'], price: 945000, featured: true },
   { handle: 'tommy-hilfiger-1782687', category: 'Damas', brand: 'Tommy Hilfiger', title: 'Tommy Hilfiger 1782687', sku: '1782687', image: 'tommy-1782687.jpg', specs: ['Malla de goma', '34 mm'], price: 920000, featured: true },
-  { handle: 'swarovski-collar-signum', category: 'Accesorios', brand: 'Swarovski', title: 'Swarovski Collar Signum', sku: '5649194', image: 'swarovski-signum.jpg', specs: ['Chapado en rodio', 'Colgante de cisne'], price: 1630000, sale: 990000, featured: true },
-  { handle: 'combo-decants-1', category: 'Perfumes', brand: 'Decants', title: 'Combo 1', sku: 'DECANT-COMBO-1', image: 'perfume-9pm.jpg', specs: ['5 decants de 10 ml'], price: 275000, sale: 220000, description: 'Al Haramain Amber Oud y cuatro de Afnan (9PM, 9PM Elixir, 9PM Rebel, 9AM Dive).' },
-  { handle: 'combo-decants-2', category: 'Perfumes', brand: 'Decants', title: 'Combo 2', sku: 'DECANT-COMBO-2', image: 'perfume-9pm.jpg', specs: ['5 decants de 10 ml'], price: 275000, sale: 220000, description: 'Bharara King, tres Armaf Club de Nuit y Calvin Klein One.' },
-  { handle: 'combo-decants-3-odyssey', category: 'Perfumes', brand: 'Decants', title: 'Combo 3, Odyssey', sku: 'DECANT-COMBO-3', image: 'perfume-9pm.jpg', specs: ['5 decants de 10 ml'], price: 275000, sale: 220000, description: 'Elegí 5 entre siete fragancias de la línea Armaf Odyssey.' },
-  { handle: 'combo-decants-4', category: 'Perfumes', brand: 'Decants', title: 'Combo 4', sku: 'DECANT-COMBO-4', image: 'perfume-million.jpg', specs: ['5 decants de 10 ml'], price: 570000, sale: 480000, description: 'Paco Rabanne Invictus, Invictus Victory Elixir y 1 Million Parfum, Carolina Herrera 212 Men y Armani Stronger With You Intensely.' },
-  { handle: 'combo-decants-5', category: 'Perfumes', brand: 'Decants', title: 'Combo 5', sku: 'DECANT-COMBO-5', image: 'perfume-million.jpg', specs: ['5 decants de 10 ml'], price: 710000, sale: 590000, description: 'Azzaro The Most Wanted, Valentino Born in Roma Intense, Jean Paul Gaultier Scandal, 1 Million Elixir y Armani Stronger With You Absolutely.' },
+  { handle: 'swarovski-collar-signum', category: JEWELRY, brand: 'Swarovski', title: 'Swarovski Collar Signum', sku: '5649194', image: 'swarovski-signum.jpg', specs: ['Chapado en rodio', 'Colgante de cisne'], price: 1630000, sale: 990000, featured: true },
+  { handle: 'combo-decants-1', category: PERFUMES, brand: 'Decants', title: 'Combo 1', sku: 'DECANT-COMBO-1', image: 'perfume-9pm.jpg', specs: ['5 decants de 10 ml'], price: 275000, sale: 220000, description: 'Al Haramain Amber Oud y cuatro de Afnan (9PM, 9PM Elixir, 9PM Rebel, 9AM Dive).' },
+  { handle: 'combo-decants-2', category: PERFUMES, brand: 'Decants', title: 'Combo 2', sku: 'DECANT-COMBO-2', image: 'perfume-9pm.jpg', specs: ['5 decants de 10 ml'], price: 275000, sale: 220000, description: 'Bharara King, tres Armaf Club de Nuit y Calvin Klein One.' },
+  { handle: 'combo-decants-3-odyssey', category: PERFUMES, brand: 'Decants', title: 'Combo 3, Odyssey', sku: 'DECANT-COMBO-3', image: 'perfume-9pm.jpg', specs: ['5 decants de 10 ml'], price: 275000, sale: 220000, description: 'Elegí 5 entre siete fragancias de la línea Armaf Odyssey.' },
+  { handle: 'combo-decants-4', category: PERFUMES, brand: 'Decants', title: 'Combo 4', sku: 'DECANT-COMBO-4', image: 'perfume-million.jpg', specs: ['5 decants de 10 ml'], price: 570000, sale: 480000, description: 'Paco Rabanne Invictus, Invictus Victory Elixir y 1 Million Parfum, Carolina Herrera 212 Men y Armani Stronger With You Intensely.' },
+  { handle: 'combo-decants-5', category: PERFUMES, brand: 'Decants', title: 'Combo 5', sku: 'DECANT-COMBO-5', image: 'perfume-million.jpg', specs: ['5 decants de 10 ml'], price: 710000, sale: 590000, description: 'Azzaro The Most Wanted, Valentino Born in Roma Intense, Jean Paul Gaultier Scandal, 1 Million Elixir y Armani Stronger With You Absolutely.' },
 ]
 
 export default async function seedDemoCatalog({ container, args }: ExecArgs) {

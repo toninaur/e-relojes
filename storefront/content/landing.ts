@@ -15,7 +15,20 @@ export const landing = {
   ],
   brands: {
     title: 'Algunas de las marcas que trabajamos',
-    list: ['Tissot', 'Seiko', 'Citizen', 'Casio', 'Emporio Armani', 'Tommy Hilfiger', 'Michael Kors', 'Fossil', 'Invicta', 'Swarovski'],
+    list: [
+      'Tissot',
+      'Seiko',
+      'Citizen',
+      'Casio',
+      'Emporio Armani',
+      'Tommy Hilfiger',
+      'Michael Kors',
+      'Fossil',
+      'Invicta',
+      'Timex',
+      'Swarovski',
+      'Ray-Ban',
+    ],
   },
   newArrivals: {
     title: 'Nuevos ingresos',
@@ -34,10 +47,13 @@ export const landing = {
     // aparecen igual, sin descripción.
     descriptions: {
       Caballeros: 'Tissot, Seiko, Citizen, Armani, Tommy Hilfiger, Invicta y opciones económicas.',
-      Damas: 'Relojes, joyas Swarovski, lentes de sol y pulseras.',
-      Casio: 'Edifice, G-Shock y los clásicos de Casio.',
-      Perfumes: 'Árabes y de diseñador, en frasco o en decants.',
-      Accesorios: 'Joyas, lentes, termos y organizadores.',
+      Damas: 'Tissot, Michael Kors, Fossil, Guess, Timex, Casio y más.',
+      Casio: 'Edifice, G-Shock, Baby-G y los clásicos de Casio.',
+      'Perfumes y decants': 'Árabes y de diseñador, en frasco, en decants o en combos.',
+      'Lentes de sol': 'Ray-Ban, Lacoste, Calvin Klein, Polaroid, Guess y más.',
+      'Joyas y pulseras': 'Swarovski, Michael Kors, pulseras y brazaletes.',
+      'Bolsos y billeteras': 'Mochilas, carteras, billeteras, cintos y necessaires.',
+      'Organizadores y accesorios': 'Organizadores de relojes y anteojos, botellas Spartan y herramientas.',
     } as Record<string, string>,
   },
   perfumes: {
@@ -51,16 +67,17 @@ export const landing = {
       { src: '/images/perfume-million.jpg', alt: 'Perfume Paco Rabanne 1 Million Elixir' },
     ],
     combosTitle: 'Combos de 5 decants de 10 ml',
-    category: 'Perfumes',
+    category: 'Perfumes y decants',
   },
   more: {
     title: 'Más que relojes',
     text: 'Todo para regalar o regalarte, en un solo lugar.',
     items: [
-      { title: 'Joyas Swarovski', text: 'Collares, aros y broches con cristales Swarovski.', image: '/images/swarovski-signum.jpg', alt: 'Collar Swarovski con colgante de cisne' },
-      { title: 'Lentes de sol', text: 'Ray-Ban, Guess, Calvin Klein y más.', image: '/images/rayban-clubmaster.jpg', alt: 'Lentes de sol Ray-Ban Clubmaster' },
-      { title: 'Termos', text: 'Consultá modelos y colores disponibles.', icon: 'thermos' as const },
-      { title: 'Organizadores y accesorios', text: 'Pulseras, organizadores y otros accesorios.', icon: 'organizer' as const },
+      // `category`: handle de la categoría a la que lleva la tarjeta.
+      { title: 'Joyas Swarovski', text: 'Collares, aros y broches con cristales Swarovski.', image: '/images/swarovski-signum.jpg', alt: 'Collar Swarovski con colgante de cisne', category: 'joyas-y-pulseras' },
+      { title: 'Lentes de sol', text: 'Ray-Ban, Lacoste, Calvin Klein y más.', image: '/images/rayban-clubmaster.jpg', alt: 'Lentes de sol Ray-Ban Clubmaster', category: 'lentes-de-sol' },
+      { title: 'Botellas y vasos', text: 'Spartan, térmicos, en varios colores.', icon: 'thermos' as const, category: 'organizadores-y-accesorios' },
+      { title: 'Bolsos y billeteras', text: 'Mochilas, carteras, billeteras y cintos.', icon: 'organizer' as const, category: 'bolsos-y-billeteras' },
     ],
   },
   howToBuy: {

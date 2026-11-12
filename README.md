@@ -77,16 +77,23 @@ crea tres diapositivas si no hay ninguna.
 |---|---|
 | Nombre | Título del producto, con la marca ("Tissot PRX"). La tienda muestra la marca arriba y el modelo como título. |
 | Marca | Colección |
-| Categoría (Caballeros, Damas…) | Categorías |
+| Categoría | Categorías: Caballeros, Damas, Casio, Perfumes y decants, Lentes de sol, Joyas y pulseras, Bolsos y billeteras, Organizadores y accesorios |
 | Referencia | SKU de la variante (o metadata `ref`) |
-| Características (chips) | Metadata `specs`, separadas por ` \| ` — ej. `Swiss made \| 40 mm` |
+| Características (chips) | Recuadro **Filtros de la tienda** del producto, una por línea (metadata `specs`, separadas por ` \| `) |
 | Destacado en el inicio | Tag `destacado` |
 | Precio de oferta (con el normal tachado) | Lista de precios "Ofertas" |
 | Fotos | Imágenes del producto |
-| Tipo (filtro) | Tipo de producto: Reloj, Perfume, Accesorio |
-| Color (filtro) | Metadata `color`, separados por ` \| ` — ej. `Negro \| Dorado`. También cuentan los valores de la opción **Color**. La muestra de cada color está en `storefront/lib/colors.ts` |
-| Malla (filtro) | Metadata `malla` — ej. `Acero`, `Cuero`, `Silicona`, `Mesh`, `Resina` |
+| Tipo (filtro) | Tipo de producto: Reloj, Perfume, Decant, Lentes de sol, Joya, Pulsera, Billetera, Cinto, Mochila o bolso, Cartera, Necessaire, Organizador, Botella o vaso, Herramienta, Accesorio |
+| Color (filtro) | Recuadro **Filtros de la tienda**, de una lista cerrada (metadata `color`, ej. `Negro \| Dorado`). También cuentan los valores de la opción **Color**. La muestra de cada color está en `storefront/lib/colors.ts` |
+| Malla (filtro) | Recuadro **Filtros de la tienda**: Acero, Mesh, Cuero, Silicona, Resina, Nylon o Tela (metadata `malla`) |
 | Variantes | Opción **Color** → selector de color (hex opcional en metadata de la variante, `color_hex`). Otra opción con más de un valor → selector de opción. |
+
+Las listas (categorías, tipos, marcas, colores y mallas) salen de los catálogos
+PDF del cliente y están en `backend/src/lib/catalog-taxonomy.ts`. La migración
+`backend/src/migration-scripts/catalog-taxonomy.ts` las crea una sola vez y no
+crea productos. Un filtro muestra solo los valores que tienen productos.
+Después de correrla, reconstruir el índice de búsqueda:
+`POST /admin/search-indexes/product/reindex` (con una clave secreta).
 
 ## Búsqueda y filtros del catálogo
 

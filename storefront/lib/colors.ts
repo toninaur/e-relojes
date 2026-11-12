@@ -21,6 +21,14 @@ const SWATCHES: Record<string, string> = {
   amarillo: '#f2c531',
   violeta: '#6b4aa8',
   champagne: '#e8d5b0',
+  'azul marino': '#1b2a4a',
+  'verde militar': '#4b5320',
+  turquesa: '#2bb5b0',
+  tiffany: '#81d8d0',
+  lila: '#b9a2d8',
+  crema: '#f3ead4',
+  transparente: 'repeating-linear-gradient(45deg,#ffffff 0 4px,#e6e6e6 4px 8px)',
+  multicolor: 'conic-gradient(#e5482b,#f2c531,#2bb57a,#2b7fe5,#9b4ae5,#e5482b)',
 }
 
 export function colorSwatch(name: string): string {

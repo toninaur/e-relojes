@@ -33,7 +33,6 @@ export default async function HomePage() {
     listProductsInCategory(landing.perfumes.category),
   ])
   const brandHandle = new Map(brands.map((b) => [b.title, b.handle]))
-  const accessories = categories.find((c) => c.name === 'Accesorios')
   // Sin diapositivas cargadas en el panel, la portada fija de content/landing.ts.
   const slides: HeroSlide[] = banners.length
     ? banners
@@ -129,7 +128,7 @@ export default async function HomePage() {
         <section id="categorias" className="section-y bg-ink text-white">
           <div className="wrap">
             <SectionHead title={landing.categories.title} text={landing.categories.text} dark />
-            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 min-[980px]:grid-cols-4">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
               {categories.map((c) => (
                 <div key={c.id} className="bg-ink-2 border border-ink-line rounded-[var(--radius-card)] p-6 flex flex-col gap-2.5">
                   <h3 className="text-[1.4rem]">{c.name}</h3>
@@ -216,10 +215,11 @@ export default async function HomePage() {
                   </div>
                 </>
               )
-              return accessories ? (
+              const category = categories.find((c) => c.handle === item.category)
+              return category ? (
                 <Link
                   key={item.title}
-                  href={`/catalogo?categoria=${accessories.handle}`}
+                  href={`/catalogo?categoria=${category.handle}`}
                   className="rounded-[var(--radius-card)] overflow-hidden bg-paper flex flex-col no-underline hover:shadow-md transition-shadow"
                 >
                   {body}
