@@ -3,6 +3,8 @@ import { landing } from '@/content/landing'
 import { brand, whatsappUrl } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import { listBrands, listCategories, listFeaturedProducts, listProductsInCategory } from '@/lib/medusa/catalog'
+import { listProducts } from '@/lib/medusa/products'
+import { ProductGrid } from '@/components/ProductCard'
 import { listBanners } from '@/lib/medusa/banners'
 import { jsonLd, storeJsonLd } from '@/lib/seo'
 import FeaturedProducts from '@/components/FeaturedProducts'
@@ -18,9 +20,13 @@ function SectionHead({ title, text, dark = false }: { title: string; text?: stri
   )
 }
 
+const NEW_ARRIVALS = 4
+
 export default async function HomePage() {
-  const [banners, featured, categories, brands, combos] = await Promise.all([
+  const [banners, newArrivals, featured, categories, brands, combos] = await Promise.all([
     listBanners(),
+    // Los últimos publicados (la tienda solo devuelve productos publicados).
+    listProducts({ order: '-created_at', limit: NEW_ARRIVALS }).then((r) => r.products),
     listFeaturedProducts(),
     listCategories(),
     listBrands(),
@@ -91,6 +97,21 @@ export default async function HomePage() {
           </ul>
         </div>
       </div>
+
+      {/* Nuevos ingresos */}
+      {newArrivals.length > 0 && (
+        <section id="nuevos" className="section-y bg-white border-b border-line">
+          <div className="wrap">
+            <SectionHead title={landing.newArrivals.title} text={landing.newArrivals.text} />
+            <ProductGrid products={newArrivals} />
+            <p className="mt-8 mb-0 text-center">
+              <Link href="/catalogo?orden=nuevos" className="btn btn-outline">
+                {landing.newArrivals.link}
+              </Link>
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* Destacados */}
       {featured.length > 0 && (

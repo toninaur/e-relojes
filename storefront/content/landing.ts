@@ -17,6 +17,11 @@ export const landing = {
     title: 'Algunas de las marcas que trabajamos',
     list: ['Tissot', 'Seiko', 'Citizen', 'Casio', 'Emporio Armani', 'Tommy Hilfiger', 'Michael Kors', 'Fossil', 'Invicta', 'Swarovski'],
   },
+  newArrivals: {
+    title: 'Nuevos ingresos',
+    text: 'Lo último que llegó al local. Se actualiza solo cada vez que publicamos un producto.',
+    link: 'Ver todos los nuevos',
+  },
   featured: {
     title: 'Relojes destacados',
     text: 'Una selección de nuestro catálogo. Agregalos al carrito o consultanos por WhatsApp.',

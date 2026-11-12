@@ -90,9 +90,6 @@ poco tráfico anda en USD 5–15/mes.
 
 - Storefront: borrar `NEXT_PUBLIC_DEMO_MODE`; dominio propio (*Networking →
   Custom Domain*) y actualizar `NEXT_PUBLIC_SITE_URL` y `STORE_CORS`.
-- Medición: cargar `NEXT_PUBLIC_GA_ID` (Google Analytics 4) y
-  `NEXT_PUBLIC_META_PIXEL_ID` (Píxel de Meta) con las cuentas del cliente, y
-  dar de alta el dominio en Google Search Console con `/sitemap.xml`.
 - Backend: borrar `SEED_DEMO`, borrar los productos de demo desde el admin (o
   `medusa exec ./src/scripts/seed-demo-catalog.js reset` y borrar a mano) y
   cargar el catálogo real; agregar Redis (`REDIS_URL`).

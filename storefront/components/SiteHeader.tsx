@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, ShoppingBag, X } from 'lucide-react'
@@ -8,16 +8,60 @@ import { brand, whatsappUrl } from '@/lib/brand'
 import { useCart } from '@/lib/CartContext'
 import HeaderSearch from './HeaderSearch'
 
-// Pestañas principales. "Cómo comprar" y "Local" son secciones de la portada.
+// Pestañas principales. "Cómo comprar" y "Local" son secciones de la portada:
+// se resaltan mientras esa sección está en pantalla (y Inicio, el resto).
+type Section = 'comprar' | 'ubicacion' | null
+const SECTIONS = ['comprar', 'ubicacion'] as const
+
 const TABS = [
-  { label: 'Inicio', href: '/', match: (p: string) => p === '/' },
-  { label: 'Catálogo', href: '/catalogo', match: (p: string) => p.startsWith('/catalogo') || p.startsWith('/producto') },
-  { label: 'Cómo comprar', href: '/#comprar', match: () => false },
-  { label: 'Local', href: '/#ubicacion', match: () => false },
+  { label: 'Inicio', href: '/', match: (p: string, s: Section) => p === '/' && s === null },
+  {
+    label: 'Catálogo',
+    href: '/catalogo',
+    match: (p: string) => p.startsWith('/catalogo') || p.startsWith('/producto'),
+  },
+  { label: 'Cómo comprar', href: '/#comprar', match: (p: string, s: Section) => p === '/' && s === 'comprar' },
+  { label: 'Local', href: '/#ubicacion', match: (p: string, s: Section) => p === '/' && s === 'ubicacion' },
 ]
+
+/** La sección de la portada que cruza la línea a un tercio de la pantalla. */
+function useHomeSection(pathname: string): Section {
+  const [section, setSection] = useState<Section>(null)
+  useEffect(() => {
+    if (pathname !== '/') {
+      setSection(null)
+      return
+    }
+    let frame = 0
+    const update = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const line = window.innerHeight / 3
+        let current: Section = null
+        for (const id of SECTIONS) {
+          const box = document.getElementById(id)?.getBoundingClientRect()
+          if (box && box.top <= line && box.bottom > line) current = id
+        }
+        // Al fondo de la página el local puede no llegar a la línea.
+        const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4
+        setSection(atBottom ? 'ubicacion' : current)
+      })
+    }
+    update()
+    window.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [pathname])
+  return section
+}
 
 export default function SiteHeader() {
   const pathname = usePathname()
+  const section = useHomeSection(pathname)
   const [open, setOpen] = useState(false)
   const { items } = useCart()
   const cartCount = items.reduce((sum, i) => sum + i.quantity, 0)
@@ -36,11 +80,11 @@ export default function SiteHeader() {
         <div className="flex items-center gap-5">
           <nav
             aria-label="Principal"
-            className={`${open ? 'flex' : 'hidden'} absolute left-0 right-0 top-full flex-col bg-ink px-5 pb-5 border-b border-[#262626]
+            className={`${open ? 'flex animate-panel-in' : 'hidden'} absolute left-0 right-0 top-full flex-col bg-ink px-5 pb-5 border-b border-[#262626]
               min-[900px]:static min-[900px]:flex min-[900px]:flex-row min-[900px]:items-center min-[900px]:gap-7 min-[900px]:p-0 min-[900px]:border-0`}
           >
             {TABS.map((tab) => {
-              const active = tab.match(pathname)
+              const active = tab.match(pathname, section)
               return (
                 <Link
                   key={tab.href}
@@ -48,7 +92,9 @@ export default function SiteHeader() {
                   aria-current={active ? 'page' : undefined}
                   onClick={() => setOpen(false)}
                   className={`${tabCls(active)} py-3.5 border-b border-[#262626] min-[900px]:py-0 min-[900px]:border-0 relative
-                    ${active ? 'min-[900px]:after:absolute min-[900px]:after:-bottom-2 min-[900px]:after:left-0 min-[900px]:after:right-0 min-[900px]:after:h-0.5 min-[900px]:after:bg-white' : ''}`}
+                    min-[900px]:after:absolute min-[900px]:after:-bottom-2 min-[900px]:after:left-0 min-[900px]:after:right-0 min-[900px]:after:h-0.5 min-[900px]:after:bg-white
+                    after:transition-transform after:duration-300 after:ease-out motion-reduce:after:transition-none
+                    ${active ? 'after:scale-x-100' : 'after:scale-x-0'}`}
                 >
                   {tab.label}
                 </Link>

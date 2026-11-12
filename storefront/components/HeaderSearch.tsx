@@ -139,7 +139,7 @@ export default function HeaderSearch({ onOpen }: { onOpen?: () => void }) {
       {open && (
         <div
           style={{ top }}
-          className="fixed inset-x-0 z-40 bg-ink border-b border-[#262626] shadow-[0_18px_40px_rgb(0_0_0/0.35)]"
+          className="animate-panel-in fixed inset-x-0 z-40 bg-ink border-b border-[#262626] shadow-[0_18px_40px_rgb(0_0_0/0.35)]"
         >
           <div className="wrap py-4">
             <form role="search" onSubmit={submit} className="flex items-center gap-3">

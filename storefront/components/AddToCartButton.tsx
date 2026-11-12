@@ -51,7 +51,15 @@ export default function AddToCartButton({ product, className = '' }: { product: 
       disabled={soldOut || maxed || state === 'adding'}
       className={`btn btn-dark ${className}`}
     >
-      {label}
+      {/* En celular la tarjeta es angosta (y lleva el botón de WhatsApp al lado). */}
+      {label === t.addToCart ? (
+        <>
+          <span className="sm:hidden">Agregar</span>
+          <span className="hidden sm:inline">{label}</span>
+        </>
+      ) : (
+        label
+      )}
     </button>
   )
 }

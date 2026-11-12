@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useCart } from '@/lib/CartContext'
-import { trackAddToCart } from '@/lib/analytics'
 import { whatsappUrl, brand } from '@/lib/brand'
 import type { UiProduct } from '@/lib/medusa/products'
+import StockBadge, { stockOf } from './StockBadge'
 import { t } from '@/lib/texts'
 import Price from './Price'
 import { WhatsAppIcon } from './icons'
@@ -47,17 +47,6 @@ export default function ProductPurchase({ product }: { product: UiProduct }) {
     setMessage(null)
     const result = await addItem(selected.id, quantity)
     setMessage(result.ok ? { ok: true, text: t.added } : { ok: false, text: result.error })
-    if (result.ok) {
-      trackAddToCart({
-        id: product.id,
-        name: product.name,
-        brand: product.brand,
-        category: product.categories[0]?.name,
-        variant: variants.length > 1 ? selected.title : null,
-        price: selected.price,
-        quantity,
-      })
-    }
     if (result.ok) setQuantity(1)
   }
 
@@ -124,11 +113,8 @@ export default function ProductPurchase({ product }: { product: UiProduct }) {
         </div>
       )}
 
-      {selected && selected.stock > 0 && selected.stock <= 3 && (
-        <p className="text-[0.92rem] text-accent font-semibold m-0">
-          ¡Últimas {selected.stock === 1 ? 'unidad' : `${selected.stock} unidades`}!
-        </p>
-      )}
+      {/* Stock de la variante elegida; sin elegir, el del modelo (o del color). */}
+      <StockBadge units={stockOf(selected ? [selected] : forColor).units} className="text-[0.98rem]" />
 
       <div className="flex gap-3">
         <label className="sr-only" htmlFor="qty">

@@ -1,11 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { HttpTypes } from '@medusajs/types'
 import { Minus, Plus, X } from 'lucide-react'
-import { CART_FIELDS, cartErrorMessage, useCart, type CartItem } from '@/lib/CartContext'
-import { trackBeginCheckout, trackPurchase, type AnalyticsItem } from '@/lib/analytics'
+import { CART_FIELDS, cartErrorMessage, useCart } from '@/lib/CartContext'
 import { sdk } from '@/lib/medusa/client'
 import { brand, whatsappUrl } from '@/lib/brand'
 import { t } from '@/lib/texts'
@@ -32,16 +31,6 @@ interface PlacedOrder {
   total: number
   currency: string
   paymentMethod: PaymentMethod
-}
-
-function toAnalyticsItem(item: CartItem): AnalyticsItem {
-  return {
-    id: item.productId,
-    name: item.title,
-    variant: item.variantTitle,
-    price: item.unitPrice,
-    quantity: item.quantity,
-  }
 }
 
 function optionCardCls(active: boolean) {
@@ -77,14 +66,6 @@ export default function CheckoutPage() {
 
   const cartId = cart?.id
   const hasItems = items.length > 0
-
-  // Medición: "inició la compra", una vez por visita al carrito con productos.
-  const checkoutTracked = useRef(false)
-  useEffect(() => {
-    if (!ready || !hasItems || checkoutTracked.current) return
-    checkoutTracked.current = true
-    trackBeginCheckout(items.map(toAnalyticsItem), cart?.total ?? undefined)
-  }, [ready, hasItems, items, cart?.total])
 
   // Opciones de envío del carrito (Envío a domicilio / Retiro en el local).
   useEffect(() => {
@@ -216,7 +197,6 @@ export default function CheckoutPage() {
         setError(cartErrorMessage(result.error))
         return
       }
-      trackPurchase(String(result.order.display_id ?? result.order.id), items.map(toAnalyticsItem), result.order.total)
       setOrder({
         number: result.order.display_id ?? 0,
         total: result.order.total,

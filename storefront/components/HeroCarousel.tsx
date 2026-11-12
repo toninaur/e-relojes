@@ -21,7 +21,8 @@ export interface HeroSlide {
   button_url: string | null
 }
 
-const INTERVAL_MS = 6000
+// Rotación lenta: cada diapositiva queda 8 s y el cambio es un fundido de 1,4 s.
+const INTERVAL_MS = 8000
 
 export default function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
   const [index, setIndex] = useState(0)
@@ -76,9 +77,12 @@ export default function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
               aria-hidden={!active}
               inert={!active}
               className={`[grid-area:1/1] grid gap-[clamp(2rem,5vw,4rem)] items-center min-[820px]:grid-cols-[1.15fr_1fr]
-                transition-opacity duration-700 motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-0'}`}
+                transition-opacity duration-[1400ms] ease-in-out motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-0'}`}
             >
-              <div>
+              {/* El texto entra subiendo apenas; la foto, con un acercamiento sutil. */}
+              <div
+                className={'transition-transform duration-[1400ms] ease-out motion-reduce:transition-none ' + (active ? 'translate-y-0' : 'translate-y-4')}
+              >
                 <Title className="text-[clamp(2.5rem,6vw,4.6rem)] mb-5">{slide.title}</Title>
                 {slide.text && (
                   <p className="text-white/80 text-[clamp(1.05rem,1.6vw,1.2rem)] max-w-[46ch] mb-8">{slide.text}</p>
@@ -91,7 +95,7 @@ export default function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
                   </a>
                 </div>
               </div>
-              <div className="relative justify-self-center w-[min(320px,82%)] min-[820px]:w-[min(440px,100%)] aspect-square rounded-full bg-white grid place-items-center shadow-[0_0_0_10px_#1b1b1b,0_0_0_11px_#333] mt-4 min-[820px]:mt-0">
+              <div className={'transition-transform duration-[2000ms] ease-out motion-reduce:transition-none ' + (active ? 'scale-100' : 'scale-[0.96]') + ' relative justify-self-center w-[min(320px,82%)] min-[820px]:w-[min(440px,100%)] aspect-square rounded-full bg-white grid place-items-center shadow-[0_0_0_10px_#1b1b1b,0_0_0_11px_#333] mt-4 min-[820px]:mt-0'}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={slide.image_url}
@@ -129,7 +133,7 @@ export default function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
                 onClick={() => go(i)}
                 aria-label={`Ir a la diapositiva ${i + 1}: ${slide.title}`}
                 aria-current={i === index}
-                className={`h-2.5 rounded-full transition-all ${i === index ? 'w-8 bg-white' : 'w-2.5 bg-white/35 hover:bg-white/60'}`}
+                className={`h-2.5 rounded-full transition-all duration-500 ease-out ${i === index ? 'w-8 bg-white' : 'w-2.5 bg-white/35 hover:bg-white/60'}`}
               />
             ))}
           </div>

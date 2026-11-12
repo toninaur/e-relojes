@@ -22,7 +22,6 @@ import { ProductGrid } from '@/components/ProductCard'
 import FilterPanel, { type FilterSection } from '@/components/catalog/FilterPanel'
 import FiltersDrawer from '@/components/catalog/FiltersDrawer'
 import SortSelect from '@/components/catalog/SortSelect'
-import { SearchTracker } from '@/components/Trackers'
 
 const PAGE_SIZE = 24
 
@@ -167,7 +166,6 @@ export default async function CatalogPage({ searchParams }: { searchParams: Sear
 
   return (
     <>
-      {state.q && <SearchTracker term={state.q} />}
       <div className="bg-ink text-white pt-12 pb-10">
         <div className="wrap">
           <h1 className="text-[clamp(2.2rem,5vw,3.6rem)] mb-2">{heading}</h1>

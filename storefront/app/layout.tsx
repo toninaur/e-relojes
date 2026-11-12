@@ -5,7 +5,6 @@ import { CartProvider } from '@/lib/CartContext'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import WhatsAppFloat from '@/components/WhatsAppFloat'
-import Analytics from '@/components/Analytics'
 import './globals.css'
 
 const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-fraunces', display: 'swap' })
@@ -42,7 +41,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SiteFooter />
           <WhatsAppFloat />
         </CartProvider>
-        <Analytics />
       </body>
     </html>
   )

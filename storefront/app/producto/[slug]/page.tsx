@@ -3,16 +3,17 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { absoluteUrl } from '@/lib/brand'
 import { getProductBySlug, listProducts } from '@/lib/medusa/products'
-import { listCategories } from '@/lib/medusa/catalog'
+import { listBrands, listCategories } from '@/lib/medusa/catalog'
 import ProductGallery from '@/components/ProductGallery'
 import ProductPurchase from '@/components/ProductPurchase'
 import { ProductGrid } from '@/components/ProductCard'
 import { t } from '@/lib/texts'
 import { formatMoney } from '@/lib/format'
 import { jsonLd, productJsonLd } from '@/lib/seo'
-import { ViewItemTracker } from '@/components/Trackers'
 
 type Params = Promise<{ slug: string }>
+
+const RELATED = 4
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { slug } = await params
@@ -46,17 +47,22 @@ export default async function ProductPage({ params }: { params: Params }) {
 
   const name = product.name
   const mainCategory = product.categories[0]
-  const categoryId = mainCategory ? (await listCategories()).find((c) => c.handle === mainCategory.handle)?.id : undefined
-  const related = categoryId
-    ? (await listProducts({ categoryId, limit: 5 })).products.filter((p) => p.id !== product.id).slice(0, 4)
-    : []
+  const [categories, brands] = await Promise.all([listCategories(), listBrands()])
+  const categoryId = mainCategory ? categories.find((c) => c.handle === mainCategory.handle)?.id : undefined
+  const brandId = product.brandHandle ? brands.find((b) => b.handle === product.brandHandle)?.id : undefined
+
+  // Relacionados: primero la misma marca, después la misma categoría.
+  const [sameBrand, sameCategory] = await Promise.all([
+    brandId ? listProducts({ collectionId: brandId, limit: RELATED + 1 }) : null,
+    categoryId ? listProducts({ categoryId, limit: RELATED * 2 }) : null,
+  ])
+  const related = [...(sameBrand?.products ?? []), ...(sameCategory?.products ?? [])]
+    .filter((p, i, all) => p.id !== product.id && all.findIndex((q) => q.id === p.id) === i)
+    .slice(0, RELATED)
 
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(productJsonLd(product)) }} />
-      <ViewItemTracker
-        item={{ id: product.id, name, brand: product.brand, category: mainCategory?.name, price: product.price }}
-      />
       <section className="py-8 sm:py-12">
         <div className="wrap">
           <nav aria-label="Ruta" className="text-[0.92rem] text-muted mb-6 flex flex-wrap gap-1.5">
@@ -143,7 +149,7 @@ export default async function ProductPage({ params }: { params: Params }) {
       {related.length > 0 && (
         <section className="pb-16 sm:pb-24">
           <div className="wrap">
-            <h2 className="text-[clamp(1.6rem,3vw,2.2rem)] mb-6">También te puede gustar</h2>
+            <h2 className="text-[clamp(1.6rem,3vw,2.2rem)] mb-6">Productos relacionados</h2>
             <ProductGrid products={related} />
           </div>
         </section>

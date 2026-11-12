@@ -47,6 +47,8 @@ export interface UiVariant {
   price: number
   originalPrice: number | null
   stock: number
+  /** Sin control de stock en el admin: siempre disponible, sin cantidad que mostrar. */
+  unlimitedStock: boolean
 }
 
 export interface UiProduct {
@@ -109,6 +111,7 @@ function toUiVariant(variant: HttpTypes.StoreProductVariant): UiVariant {
     price,
     originalPrice: original !== null && original > price ? original : null,
     stock: unlimited ? UNLIMITED_STOCK : Math.max(0, variant.inventory_quantity ?? 0),
+    unlimitedStock: Boolean(unlimited),
   }
 }
 
@@ -213,3 +216,4 @@ export async function getProductBySlug(slug: string): Promise<UiProduct | null> 
   const { products } = await listProducts({ handle: slug, limit: 1 })
   return products[0] ?? null
 }
+

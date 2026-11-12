@@ -44,9 +44,9 @@ npm run dev
 
 | Ruta | Qué es |
 |---|---|
-| `/` | Inicio: banner rotativo, destacados, categorías, perfumes, cómo comprar, reseñas, local |
-| `/catalogo` | Catálogo con búsqueda y filtros: tipo, categoría, marca, color, malla, precio y ofertas (ver abajo) |
-| `/producto/<handle>` | Ficha de producto |
+| `/` | Inicio: banner rotativo, nuevos ingresos (los 4 últimos publicados), destacados, categorías, perfumes, cómo comprar, reseñas, local. En el encabezado se resalta la sección que se está viendo |
+| `/catalogo` | Catálogo con búsqueda y filtros: tipo, categoría, marca, color, malla, precio y ofertas (ver abajo). Cada tarjeta muestra el stock y un botón de WhatsApp |
+| `/producto/<handle>` | Ficha de producto: stock, WhatsApp y productos relacionados (misma marca, después misma categoría) |
 | `/carrito` | Carrito y checkout. Crea el pedido en Medusa (admin → Pedidos) |
 
 ## Banner de la portada
@@ -99,7 +99,7 @@ Filtros por URL, combinables y con varios valores (`?color=Negro&color=Azul`):
 `q`, `tipo`, `categoria` (handle), `marca` (handle), `color`, `malla`, `min`, `max`,
 `oferta=1`, `orden` (`nuevos`, `precio-asc`, `precio-desc`, `nombre`), `pagina`.
 
-## Buscador, SEO y medición
+## Buscador y SEO
 
 - **Buscador del encabezado** (lupa o tecla "/"): muestra resultados mientras se
   escribe desde `/api/buscar`, con la misma búsqueda del catálogo; Enter lleva
@@ -108,10 +108,6 @@ Filtros por URL, combinables y con varios valores (`?color=Negro&color=Azul`):
   `/robots.txt` (en modo demo no indexa nada), datos estructurados del local
   (inicio) y de cada producto (precio y stock), y vista previa al compartir con
   foto y precio. Las búsquedas y los filtros combinados llevan noindex.
-- **Medición**: Google Analytics 4 y Píxel de Meta, solo si están
-  `NEXT_PUBLIC_GA_ID` / `NEXT_PUBLIC_META_PIXEL_ID`. Eventos: página vista,
-  búsqueda, vio un producto, agregó al carrito, inició la compra, compra y
-  click a WhatsApp (`storefront/lib/analytics.ts`).
 
 ## Checkout
 
