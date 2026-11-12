@@ -1,0 +1,7 @@
+{
+  "storeUrl": "https://erelojesadmin.up.railway.app",
+  "apiKey": "sk_...",
+  "aroniumDb": "%LOCALAPPDATA%\Aronium\Data\pos.db",
+  "warehouseId": null,
+  "intervalMinutes": 5
+}

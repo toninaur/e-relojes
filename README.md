@@ -6,7 +6,8 @@ npm workspaces.
 
 ```
 ├── backend/      # Medusa 2 (@erelojes/backend) — API en :9000, admin en :9000/app
-└── storefront/   # Next.js (@erelojes/storefront) — :8000
+├── storefront/   # Next.js (@erelojes/storefront) — :8000
+└── connector/    # Conector Aronium → tienda (corre en la PC del local; no es parte del deploy)
 ```
 
 ## Requisitos
@@ -111,6 +112,14 @@ funciona como tienda real.
 3. `storefront/app/globals.css`: paleta de colores. Fuentes en `storefront/app/layout.tsx`.
 4. `storefront/public/brand/` y `storefront/public/images/`: logos e imágenes.
 5. Textos del carrito y checkout: `storefront/lib/texts.ts`.
+
+## Conector con Aronium
+
+El precio normal y el stock vienen de Aronium, el sistema de caja del local. El
+conector (`connector/`, ver su [README](connector/README.md)) lee la base de
+Aronium y llama a `POST /admin/aronium/sync` (`backend/src/lib/aronium-sync.ts`)
+con una clave secreta de API. El código de Aronium es el SKU de la variante;
+los códigos nuevos se crean como productos en borrador.
 
 ## Pendiente
 

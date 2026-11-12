@@ -15,5 +15,11 @@ export default defineMiddlewares({
         }),
       ],
     },
+    {
+      // El conector de Aronium puede mandar fotos (base64) en el lote.
+      method: ['POST'],
+      matcher: '/admin/aronium/sync',
+      bodyParser: { sizeLimit: '25mb' },
+    },
   ],
 })
