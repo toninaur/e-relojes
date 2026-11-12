@@ -44,10 +44,23 @@ npm run dev
 
 | Ruta | Qué es |
 |---|---|
-| `/` | Inicio: la landing (portada, destacados, categorías, perfumes, cómo comprar, reseñas, local) |
+| `/` | Inicio: banner rotativo, destacados, categorías, perfumes, cómo comprar, reseñas, local |
 | `/catalogo` | Catálogo con búsqueda y filtros: tipo, categoría, marca, color, malla, precio y ofertas (ver abajo) |
 | `/producto/<handle>` | Ficha de producto |
 | `/carrito` | Carrito y checkout. Crea el pedido en Medusa (admin → Pedidos) |
+| `/links` | Página de links para la bio de Instagram y TikTok: tienda, WhatsApp, catálogos PDF (Drive) y local. Sin encabezado ni pie |
+
+Las páginas de la tienda están en `storefront/app/(site)/`, que les pone el
+encabezado y el pie; `/links` queda afuera a propósito.
+
+## Banner de la portada
+
+Se carga en el panel → **Banner**: título, texto, foto, botón con link, orden,
+visible u oculto y fechas opcionales (para promociones). "La foto llena todo el
+círculo" es para fotos con fondo de color o flyers; apagado, el producto va
+sobre fondo blanco con margen. Sin diapositivas visibles, la portada usa el
+texto fijo de `storefront/content/landing.ts`. El seed del catálogo de demo
+crea tres diapositivas si no hay ninguna.
 
 ## Datos iniciales
 

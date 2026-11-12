@@ -58,6 +58,7 @@ module.exports = defineConfig({
       },
     },
     { resolve: './src/modules/aronium' },
+    { resolve: './src/modules/banner' },
     ...redisModules,
   ],
 })

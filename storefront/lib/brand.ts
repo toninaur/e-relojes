@@ -16,9 +16,11 @@ export const brand = {
     display: '0992 295 298',
     greeting: 'Hola, e-relojes.',
   },
+  // Catálogos en PDF que el local comparte por Drive.
+  catalogsUrl: 'https://drive.google.com/drive/folders/1TznXmLfO0PEeuW9-vA1lI9IiPtmZvw0F',
   social: [
-    { label: 'Instagram', url: 'https://www.instagram.com/e.relojes_paraguay' },
-    { label: 'TikTok', url: 'https://www.tiktok.com/@e.relojes_paraguay' },
+    { label: 'Instagram', handle: '@e.relojes_paraguay', url: 'https://www.instagram.com/e.relojes_paraguay/' },
+    { label: 'TikTok', handle: '@e.relojes_paraguay', url: 'https://www.tiktok.com/@e.relojes_paraguay' },
   ],
   location: {
     address: 'Radio Operadores del Chaco casi Celsa Speratti 968, barrio Mburicao, Asunción',

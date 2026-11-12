@@ -26,6 +26,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ExecArgs } from '@medusajs/framework/types'
+import { BANNER_MODULE } from '../modules/banner'
+import type BannerModuleService from '../modules/banner/service'
 import { ContainerRegistrationKeys, MedusaError, ProductStatus } from '@medusajs/framework/utils'
 import {
   createCollectionsWorkflow,
@@ -227,6 +229,9 @@ export default async function seedDemoCatalog({ container, args }: ExecArgs) {
     logger.info(`Creado el cupón ${DEMO_PROMO_CODE}`)
   }
 
+  // ---- Banner de la portada (solo si no hay ninguna diapositiva) ------------
+  await seedBanners(container)
+
   // ---- Productos ------------------------------------------------------------
   const { data: existing } = await query.graph({ entity: 'product', fields: ['id', 'handle', 'metadata'] })
   const taken = new Set(existing.map((p) => p.handle))
@@ -368,4 +373,57 @@ async function uploadImages(container: ExecArgs['container'], products: DemoProd
     },
   })
   return new Map(files.map((filename, i) => [filename, result[i].url]))
+}
+
+// Diapositivas de demo del banner rotativo. Si el cliente ya cargó (o borró)
+// las suyas, no se tocan: solo se crean cuando no hay ninguna.
+const DEMO_BANNERS = [
+  {
+    title: 'Relojes de las marcas que conocés, con envíos a todo el país',
+    text: 'Tissot, Seiko, Citizen, Casio, Invicta y muchas más. Además, perfumes, joyas y accesorios. Comprá online, visitanos en Asunción o escribinos por WhatsApp.',
+    image: 'seiko-gmt.jpg',
+    image_alt: 'Reloj Seiko 5 Sports GMT con bisel azul y negro',
+    button_label: 'Ver catálogo',
+    button_url: '/catalogo',
+  },
+  {
+    title: 'Ofertas de la semana',
+    text: 'Tissot, Seiko, Casio y Swarovski con precio rebajado, hasta agotar stock.',
+    image: 'tissot-prx.jpg',
+    image_alt: 'Reloj Tissot PRX de acero con esfera azul',
+    image_fit: 'cover' as const,
+    button_label: 'Ver ofertas',
+    button_url: '/catalogo?oferta=1',
+  },
+  {
+    title: 'Perfumes árabes y decants',
+    text: 'Combos de 5 decants de 10 ml para probar una fragancia antes de comprar el frasco.',
+    image: 'perfume-9pm.jpg',
+    image_alt: 'Perfume Afnan 9PM con su decant de 10 ml',
+    image_fit: 'cover' as const,
+    button_label: 'Ver perfumes',
+    button_url: '/catalogo?categoria=perfumes',
+  },
+]
+
+async function seedBanners(container: ExecArgs['container']) {
+  const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+  const banners: BannerModuleService = container.resolve(BANNER_MODULE)
+  const [, count] = await banners.listAndCountBanners({}, { take: 1, withDeleted: true })
+  if (count) return
+
+  const { result } = await uploadFilesWorkflow(container).run({
+    input: {
+      files: DEMO_BANNERS.map((b) => ({
+        filename: `banner-${b.image}`,
+        mimeType: 'image/jpeg',
+        content: fs.readFileSync(path.join(IMAGES_DIR, b.image)).toString('base64'),
+        access: 'public' as const,
+      })),
+    },
+  })
+  await banners.createBanners(
+    DEMO_BANNERS.map(({ image, ...b }, rank) => ({ ...b, image_url: result[rank].url, rank, is_active: true }))
+  )
+  logger.info(`Creadas ${DEMO_BANNERS.length} diapositivas del banner`)
 }

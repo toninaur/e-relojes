@@ -2,9 +2,6 @@ import type { Metadata, Viewport } from 'next'
 import { Figtree, Fraunces } from 'next/font/google'
 import { brand } from '@/lib/brand'
 import { CartProvider } from '@/lib/CartContext'
-import SiteHeader from '@/components/SiteHeader'
-import SiteFooter from '@/components/SiteFooter'
-import WhatsAppFloat from '@/components/WhatsAppFloat'
 import './globals.css'
 
 const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-fraunces', display: 'swap' })
@@ -34,12 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             Sitio de demostración: los productos, precios y pedidos no son reales.
           </div>
         )}
-        <CartProvider>
-          <SiteHeader />
-          <main className="flex-1">{children}</main>
-          <SiteFooter />
-          <WhatsAppFloat />
-        </CartProvider>
+        <CartProvider>{children}</CartProvider>
       </body>
     </html>
   )

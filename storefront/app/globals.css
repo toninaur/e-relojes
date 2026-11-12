@@ -132,6 +132,23 @@
     font-size: 0.92rem;
   }
 
+  /* Flechas del banner rotativo de la portada. */
+  .carousel-arrow {
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 999px;
+    border: 1.5px solid rgb(255 255 255 / 0.3);
+    color: #fff;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .carousel-arrow:hover {
+    border-color: #fff;
+    background: rgb(255 255 255 / 0.08);
+  }
+
   .chip {
     display: inline-flex;
     align-items: center;

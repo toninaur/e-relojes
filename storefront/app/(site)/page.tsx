@@ -3,8 +3,10 @@ import { landing } from '@/content/landing'
 import { brand, whatsappUrl } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import { listBrands, listCategories, listFeaturedProducts, listProductsInCategory } from '@/lib/medusa/catalog'
+import { listBanners } from '@/lib/medusa/banners'
 import FeaturedProducts from '@/components/FeaturedProducts'
-import { OrganizerIcon, ThermosIcon, WhatsAppIcon } from '@/components/icons'
+import HeroCarousel, { type HeroSlide } from '@/components/HeroCarousel'
+import { OrganizerIcon, ThermosIcon } from '@/components/icons'
 
 function SectionHead({ title, text, dark = false }: { title: string; text?: string; dark?: boolean }) {
   return (
@@ -16,7 +18,8 @@ function SectionHead({ title, text, dark = false }: { title: string; text?: stri
 }
 
 export default async function HomePage() {
-  const [featured, categories, brands, combos] = await Promise.all([
+  const [banners, featured, categories, brands, combos] = await Promise.all([
+    listBanners(),
     listFeaturedProducts(),
     listCategories(),
     listBrands(),
@@ -24,39 +27,25 @@ export default async function HomePage() {
   ])
   const brandHandle = new Map(brands.map((b) => [b.title, b.handle]))
   const accessories = categories.find((c) => c.name === 'Accesorios')
+  // Sin diapositivas cargadas en el panel, la portada fija de content/landing.ts.
+  const slides: HeroSlide[] = banners.length
+    ? banners
+    : [
+        {
+          id: 'portada',
+          title: landing.hero.title,
+          text: landing.hero.text,
+          image_url: landing.hero.image,
+          image_alt: landing.hero.imageAlt,
+          button_label: 'Ver catálogo',
+          button_url: '/catalogo',
+        },
+      ]
 
   return (
     <>
-      {/* Portada */}
-      <section className="bg-ink text-white overflow-hidden pt-[clamp(3rem,7vw,5.5rem)] pb-[clamp(3.5rem,8vw,6rem)]">
-        <div className="wrap grid gap-[clamp(2rem,5vw,4rem)] items-center min-[820px]:grid-cols-[1.15fr_1fr]">
-          <div>
-            <h1 className="text-[clamp(2.5rem,6vw,4.6rem)] mb-5">{landing.hero.title}</h1>
-            <p className="text-white/80 text-[clamp(1.05rem,1.6vw,1.2rem)] max-w-[46ch] mb-8">{landing.hero.text}</p>
-            <div className="flex flex-wrap gap-3">
-              <Link href="/catalogo" className="btn btn-light">
-                Ver catálogo
-              </Link>
-              <a href={whatsappUrl()} className="btn btn-outline-light" target="_blank" rel="noopener">
-                <WhatsAppIcon />
-                Escribinos por WhatsApp
-              </a>
-            </div>
-          </div>
-          <div className="relative justify-self-center w-[min(320px,82%)] min-[820px]:w-[min(440px,100%)] aspect-square rounded-full bg-white grid place-items-center shadow-[0_0_0_10px_#1b1b1b,0_0_0_11px_#333] mt-4 min-[820px]:mt-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={landing.hero.image} alt={landing.hero.imageAlt} className="w-[72%] h-[72%] object-contain" fetchPriority="high" />
-            <a
-              href={brand.reviews.url}
-              target="_blank"
-              rel="noopener"
-              className="absolute right-[2%] bottom-[6%] bg-ink text-white border border-[#333] rounded-full px-4 py-2 font-semibold text-[0.92rem] flex gap-1.5 items-center no-underline"
-            >
-              <span className="text-star">★</span> {brand.reviews.score} en {brand.reviews.source}
-            </a>
-          </div>
-        </div>
-      </section>
+      {/* Portada: banner rotativo (panel → Banner) */}
+      <HeroCarousel slides={slides} />
 
       {/* Datos */}
       <div className="bg-white border-b border-line">

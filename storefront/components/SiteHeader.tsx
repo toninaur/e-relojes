@@ -53,6 +53,16 @@ export default function SiteHeader() {
                 </Link>
               )
             })}
+            {/* Catálogos en PDF del local (Drive), en otra pestaña. */}
+            <a
+              href={brand.catalogsUrl}
+              target="_blank"
+              rel="noopener"
+              onClick={() => setOpen(false)}
+              className={`${tabCls(false)} py-3.5 border-b border-[#262626] min-[900px]:py-0 min-[900px]:border-0`}
+            >
+              Catálogos PDF
+            </a>
             <a
               href={whatsappUrl()}
               target="_blank"

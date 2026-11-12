@@ -11,6 +11,9 @@ export default function SiteFooter() {
           <Link href="/catalogo" className="text-white font-medium no-underline hover:underline">
             Catálogo
           </Link>
+          <a href={brand.catalogsUrl} target="_blank" rel="noopener" className="text-white font-medium no-underline hover:underline">
+            Catálogos PDF
+          </a>
           {brand.social.map((s) => (
             <a key={s.url} href={s.url} target="_blank" rel="noopener" className="text-white font-medium no-underline hover:underline">
               {s.label}
