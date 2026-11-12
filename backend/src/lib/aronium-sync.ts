@@ -9,6 +9,7 @@ import {
 } from '@medusajs/medusa/core-flows'
 import { z } from 'zod'
 import { ARONIUM_MODULE } from '../modules/aronium'
+import { classify } from './aronium-classify'
 import type AroniumModuleService from '../modules/aronium/service'
 
 // Sincronización con Aronium (el sistema de caja del local).
@@ -32,6 +33,7 @@ import type AroniumModuleService from '../modules/aronium/service'
 // el panel (admin → Aronium).
 
 const CURRENCY = 'pyg'
+const NO_COLOR_TYPES = new Set(['Perfume', 'Decant'])
 const SKU_CHUNK = 500
 
 export const aroniumItemSchema = z.object({
@@ -272,7 +274,7 @@ export async function getAroniumStatus(container: MedusaContainer, { limit = 20,
   // Borradores creados por el conector, para que los completen y publiquen.
   const { data: drafts } = await query.graph({
     entity: 'product',
-    fields: ['id', 'title', 'thumbnail', 'created_at', 'metadata', 'variants.sku'],
+    fields: ['id', 'title', 'thumbnail', 'created_at', 'metadata', 'categories.id', 'collection_id', 'type.value'],
     filters: { status: ProductStatus.DRAFT },
   })
 
@@ -286,6 +288,15 @@ export async function getAroniumStatus(container: MedusaContainer, { limit = 20,
         code: String(p.metadata!.aronium_code),
         has_image: Boolean(p.thumbnail),
         created_at: p.created_at,
+        // Lo que falta para publicarlo bien (el catálogo filtra por esto).
+        missing: [
+          !p.categories?.length && 'categoría',
+          !p.collection_id && 'marca',
+          !p.type && 'tipo',
+          // El color no aplica a perfumes ni decants.
+          !p.metadata?.color && !NO_COLOR_TYPES.has(p.type?.value ?? '') && 'color',
+          !p.thumbnail && 'foto',
+        ].filter((x): x is string => Boolean(x)),
       })),
     runs,
     runs_count: runsCount,
@@ -362,20 +373,29 @@ async function createDraftProducts(container: MedusaContainer, items: AroniumIte
   const { data: salesChannels } = await query.graph({ entity: 'sales_channel', fields: ['id'] })
   const { data: shippingProfiles } = await query.graph({ entity: 'shipping_profile', fields: ['id'] })
   const { data: categories } = await query.graph({ entity: 'product_category', fields: ['id', 'name'] })
-  const categoryByName = new Map(categories.map((c) => [normalize(c.name), c.id]))
+  const { data: collections } = await query.graph({ entity: 'product_collection', fields: ['id', 'title'] })
+  const { data: types } = await query.graph({ entity: 'product_type', fields: ['id', 'value'] })
+  const categoryId = new Map(categories.map((c) => [c.name, c.id]))
+  const brandId = new Map(collections.map((c) => [c.title, c.id]))
+  const typeId = new Map(types.map((t) => [t.value, t.id]))
 
   const handles = await uniqueHandles(container, items)
 
   await createProductsWorkflow(container).run({
     input: {
       products: items.map((item) => {
-        const categoryId = item.group ? categoryByName.get(normalize(item.group)) : undefined
+        // Categoría (por el grupo de Aronium), marca y tipo (por el nombre):
+        // lib/aronium-classify.ts. Lo que no se deduce queda para el panel.
+        const found = classify(item, [...categoryId.keys()], [...brandId.keys()])
+        const category = found.category ? categoryId.get(found.category) : undefined
         return {
           title: item.name,
           handle: handles.get(item.code)!,
           description: item.description ?? undefined,
           status: ProductStatus.DRAFT,
-          category_ids: categoryId ? [categoryId] : [],
+          category_ids: category ? [category] : [],
+          collection_id: found.brand ? brandId.get(found.brand) : undefined,
+          type_id: found.type ? typeId.get(found.type) : undefined,
           shipping_profile_id: shippingProfiles[0]?.id,
           metadata: { aronium_code: item.code, ...(item.group ? { aronium_group: item.group } : {}) },
           options: [{ title: 'Modelo', values: ['Único'] }],

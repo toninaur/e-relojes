@@ -18,7 +18,22 @@ Rutas, con clave secreta de API: `POST /admin/aronium/sync` (catálogo o error),
 | Precio | Precio normal. Las ofertas (lista "Ofertas") no se tocan |
 | Stock (suma de los depósitos, o el de `warehouseId`) | Stock del local. Lo vendido online y no entregado queda reservado y se descuenta |
 | Producto desactivado | Stock 0 (no se vende online) |
-| Código que no existe en la tienda | Producto nuevo **en borrador**, con nombre, descripción y categoría (si un grupo de Aronium se llama igual que una categoría). La foto de Aronium, si tiene, llega en un segundo paso |
+| Código que no existe en la tienda | Producto nuevo **en borrador**, con nombre, descripción, categoría, marca y tipo cuando se pueden deducir (ver abajo). La foto de Aronium, si tiene, llega en un segundo paso |
+
+Al crear un borrador, `backend/src/lib/aronium-classify.ts` completa:
+
+- **Categoría:** por el grupo de Aronium, si se llama igual que una categoría
+  o figura en `GROUP_ALIASES` (`backend/src/lib/catalog-taxonomy.ts`; completar
+  con los grupos reales del local). Sin grupo, por el tipo (lentes, perfumes,
+  billeteras…) o por la marca Casio. Un reloj sin grupo queda sin categoría,
+  porque el nombre no dice si es de caballero o de dama.
+- **Marca:** la que aparece al principio del nombre ("Tissot PRX…",
+  "G-Shock…" → Casio, "MK5774" → Michael Kors).
+- **Tipo:** por palabras del nombre (billetera, lentes, EDP…) o por la marca
+  si vende una sola cosa (Curren → Reloj, Ray-Ban → Lentes de sol).
+
+Lo que falta (categoría, marca, tipo, color, foto) se ve en panel → Aronium,
+en "Productos nuevos para completar".
 
 Título, fotos, descripción y características de un producto que ya existe se
 manejan en el panel: el conector no las pisa. Precio y stock se cambian siempre

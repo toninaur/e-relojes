@@ -36,7 +36,7 @@ type Status = {
     last_error: string | null
     last_error_at: string | null
   } | null
-  drafts: { id: string; title: string; code: string; has_image: boolean; created_at: string }[]
+  drafts: { id: string; title: string; code: string; has_image: boolean; created_at: string; missing: string[] }[]
   runs: Run[]
   runs_count: number
 }
@@ -87,7 +87,7 @@ const AroniumPage = () => {
           <div className="px-6 py-4">
             <Heading level="h2">Productos nuevos para completar ({status.drafts.length})</Heading>
             <Text size="small" className="text-ui-fg-subtle">
-              Llegaron de Aronium y están ocultos. Completá fotos, descripción y filtros (tipo, color, malla) y publicalos.
+              Llegaron de Aronium y están ocultos. Categoría, marca y tipo se completan solos cuando se pueden deducir del grupo y del nombre; lo que falta se carga en el producto ("Organizar" y "Filtros de la tienda") antes de publicarlo.
             </Text>
           </div>
           <Table>
@@ -95,7 +95,7 @@ const AroniumPage = () => {
               <Table.Row>
                 <Table.HeaderCell>Producto</Table.HeaderCell>
                 <Table.HeaderCell>Código</Table.HeaderCell>
-                <Table.HeaderCell>Foto</Table.HeaderCell>
+                <Table.HeaderCell>Falta</Table.HeaderCell>
                 <Table.HeaderCell>Llegó</Table.HeaderCell>
               </Table.Row>
             </Table.Header>
@@ -104,7 +104,19 @@ const AroniumPage = () => {
                 <Table.Row key={d.id} className="cursor-pointer" onClick={() => (window.location.href = `/app/products/${d.id}`)}>
                   <Table.Cell>{d.title}</Table.Cell>
                   <Table.Cell>{d.code}</Table.Cell>
-                  <Table.Cell>{d.has_image ? <Badge color="green" size="2xsmall">Sí</Badge> : <Badge color="orange" size="2xsmall">Falta</Badge>}</Table.Cell>
+                  <Table.Cell>
+                    {d.missing.length === 0 ? (
+                      <Badge color="green" size="2xsmall">Listo para publicar</Badge>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {d.missing.map((m) => (
+                          <Badge key={m} color="orange" size="2xsmall">
+                            {m}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </Table.Cell>
                   <Table.Cell>{formatDate(d.created_at)}</Table.Cell>
                 </Table.Row>
               ))}
