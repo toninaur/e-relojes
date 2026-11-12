@@ -27,25 +27,19 @@ const INTERVAL_MS = 8000
 export default function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
-  const [reducedMotion, setReducedMotion] = useState(false)
   const touchX = useRef<number | null>(null)
   const count = slides.length
 
   const go = useCallback((next: number) => setIndex(((next % count) + count) % count), [count])
 
+  // Rota siempre, también con "reducir movimiento" (Windows lo activa al
+  // apagar "Mostrar animaciones"): un fundido lento no es movimiento. En ese
+  // caso solo se quitan los desplazamientos (texto que sube, foto que se acerca).
   useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    setReducedMotion(media.matches)
-    const onChange = () => setReducedMotion(media.matches)
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
-  }, [])
-
-  useEffect(() => {
-    if (count < 2 || paused || reducedMotion) return
+    if (count < 2 || paused) return
     const timer = setTimeout(() => go(index + 1), INTERVAL_MS)
     return () => clearTimeout(timer)
-  }, [index, count, paused, reducedMotion, go])
+  }, [index, count, paused, go])
 
   return (
     <section
@@ -77,7 +71,7 @@ export default function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
               aria-hidden={!active}
               inert={!active}
               className={`[grid-area:1/1] grid gap-[clamp(2rem,5vw,4rem)] items-center min-[820px]:grid-cols-[1.15fr_1fr]
-                transition-opacity duration-[1400ms] ease-in-out motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-0'}`}
+                transition-opacity duration-[1400ms] ease-in-out ${active ? 'opacity-100' : 'opacity-0'}`}
             >
               {/* El texto entra subiendo apenas; la foto, con un acercamiento sutil. */}
               <div

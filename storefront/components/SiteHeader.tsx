@@ -93,7 +93,7 @@ export default function SiteHeader() {
                   onClick={() => setOpen(false)}
                   className={`${tabCls(active)} py-3.5 border-b border-[#262626] min-[900px]:py-0 min-[900px]:border-0 relative
                     min-[900px]:after:absolute min-[900px]:after:-bottom-2 min-[900px]:after:left-0 min-[900px]:after:right-0 min-[900px]:after:h-0.5 min-[900px]:after:bg-white
-                    after:transition-transform after:duration-300 after:ease-out motion-reduce:after:transition-none
+                    after:transition-transform after:duration-300 after:ease-out
                     ${active ? 'after:scale-x-100' : 'after:scale-x-0'}`}
                 >
                   {tab.label}

@@ -205,9 +205,18 @@
     transform: none;
   }
 }
+/* Con "reducir movimiento": solo el fundido, sin desplazamiento. */
+@keyframes panel-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 @utility animate-panel-in {
   animation: panel-in 0.22s ease-out both;
   @media (prefers-reduced-motion: reduce) {
-    animation: none;
+    animation-name: panel-fade;
   }
 }

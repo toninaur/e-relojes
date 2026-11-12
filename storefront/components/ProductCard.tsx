@@ -14,7 +14,7 @@ export default function ProductCard({ product }: { product: UiProduct }) {
   const waMessage = `${brand.whatsapp.greeting} Me interesa el ${name}${product.ref ? ` (ref. ${product.ref})` : ''} que vi en la web. ¿Está disponible?`
 
   return (
-    <article className="group bg-white border border-line rounded-[var(--radius-card)] overflow-hidden flex flex-col transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_14px_32px_rgb(0_0_0/0.08)] motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+    <article className="group bg-white border border-line rounded-[var(--radius-card)] overflow-hidden flex flex-col transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_14px_32px_rgb(0_0_0/0.08)] motion-reduce:transition-shadow motion-reduce:hover:translate-y-0">
       <Link href={href} className="relative block aspect-square bg-white border-b border-line overflow-hidden">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -22,7 +22,7 @@ export default function ProductCard({ product }: { product: UiProduct }) {
             src={image}
             alt={name}
             loading="lazy"
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04] motion-reduce:transition-none"
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04] motion-reduce:group-hover:scale-100"
           />
         ) : (
           <span className="absolute inset-0 grid place-items-center bg-ink text-white font-display px-4 text-center">
