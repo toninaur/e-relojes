@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useCart } from '@/lib/CartContext'
+import { trackAddToCart } from '@/lib/analytics'
 import { whatsappUrl, brand } from '@/lib/brand'
 import type { UiProduct } from '@/lib/medusa/products'
 import { t } from '@/lib/texts'
@@ -46,6 +47,17 @@ export default function ProductPurchase({ product }: { product: UiProduct }) {
     setMessage(null)
     const result = await addItem(selected.id, quantity)
     setMessage(result.ok ? { ok: true, text: t.added } : { ok: false, text: result.error })
+    if (result.ok) {
+      trackAddToCart({
+        id: product.id,
+        name: product.name,
+        brand: product.brand,
+        category: product.categories[0]?.name,
+        variant: variants.length > 1 ? selected.title : null,
+        price: selected.price,
+        quantity,
+      })
+    }
     if (result.ok) setQuantity(1)
   }
 

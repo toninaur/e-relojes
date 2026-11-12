@@ -48,10 +48,6 @@ npm run dev
 | `/catalogo` | Catálogo con búsqueda y filtros: tipo, categoría, marca, color, malla, precio y ofertas (ver abajo) |
 | `/producto/<handle>` | Ficha de producto |
 | `/carrito` | Carrito y checkout. Crea el pedido en Medusa (admin → Pedidos) |
-| `/links` | Página de links para la bio de Instagram y TikTok: tienda, WhatsApp, catálogos PDF (Drive) y local. Sin encabezado ni pie |
-
-Las páginas de la tienda están en `storefront/app/(site)/`, que les pone el
-encabezado y el pie; `/links` queda afuera a propósito.
 
 ## Banner de la portada
 
@@ -102,6 +98,20 @@ reiniciar el backend (se reindexa al arrancar).
 Filtros por URL, combinables y con varios valores (`?color=Negro&color=Azul`):
 `q`, `tipo`, `categoria` (handle), `marca` (handle), `color`, `malla`, `min`, `max`,
 `oferta=1`, `orden` (`nuevos`, `precio-asc`, `precio-desc`, `nombre`), `pagina`.
+
+## Buscador, SEO y medición
+
+- **Buscador del encabezado** (lupa o tecla "/"): muestra resultados mientras se
+  escribe desde `/api/buscar`, con la misma búsqueda del catálogo; Enter lleva
+  a `/catalogo?q=`.
+- **SEO**: `/sitemap.xml` (inicio, catálogo, categorías, marcas y productos),
+  `/robots.txt` (en modo demo no indexa nada), datos estructurados del local
+  (inicio) y de cada producto (precio y stock), y vista previa al compartir con
+  foto y precio. Las búsquedas y los filtros combinados llevan noindex.
+- **Medición**: Google Analytics 4 y Píxel de Meta, solo si están
+  `NEXT_PUBLIC_GA_ID` / `NEXT_PUBLIC_META_PIXEL_ID`. Eventos: página vista,
+  búsqueda, vio un producto, agregó al carrito, inició la compra, compra y
+  click a WhatsApp (`storefront/lib/analytics.ts`).
 
 ## Checkout
 

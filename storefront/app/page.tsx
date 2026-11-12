@@ -4,6 +4,7 @@ import { brand, whatsappUrl } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import { listBrands, listCategories, listFeaturedProducts, listProductsInCategory } from '@/lib/medusa/catalog'
 import { listBanners } from '@/lib/medusa/banners'
+import { jsonLd, storeJsonLd } from '@/lib/seo'
 import FeaturedProducts from '@/components/FeaturedProducts'
 import HeroCarousel, { type HeroSlide } from '@/components/HeroCarousel'
 import { OrganizerIcon, ThermosIcon } from '@/components/icons'
@@ -44,6 +45,9 @@ export default async function HomePage() {
 
   return (
     <>
+      {/* Ficha del local para Google (dirección, horarios, mapa, redes). */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(storeJsonLd()) }} />
+
       {/* Portada: banner rotativo (panel → Banner) */}
       <HeroCarousel slides={slides} />
 

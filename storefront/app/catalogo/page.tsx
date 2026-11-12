@@ -7,6 +7,7 @@ import { SORTS, searchCatalog, type FacetField, type FacetValue, type SortKey } 
 import {
   activeFilterCount,
   catalogHref,
+  LIST_PARAMS,
   parseCatalogState,
   stateToEntries,
   toggleHref,
@@ -15,11 +16,13 @@ import {
   type RawSearchParams,
 } from '@/lib/catalog-url'
 import { colorSwatch } from '@/lib/colors'
+import { absoluteUrl, brand } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
 import { ProductGrid } from '@/components/ProductCard'
 import FilterPanel, { type FilterSection } from '@/components/catalog/FilterPanel'
 import FiltersDrawer from '@/components/catalog/FiltersDrawer'
 import SortSelect from '@/components/catalog/SortSelect'
+import { SearchTracker } from '@/components/Trackers'
 
 const PAGE_SIZE = 24
 
@@ -27,10 +30,31 @@ type SearchParams = Promise<RawSearchParams>
 
 export async function generateMetadata({ searchParams }: { searchParams: SearchParams }): Promise<Metadata> {
   const state = parseCatalogState(await searchParams)
-  const category = state.categoria.length === 1 ? (await listCategories()).find((c) => c.handle === state.categoria[0]) : null
+  const [categories, brands] = await Promise.all([listCategories(), listBrands()])
+  const category = state.categoria.length === 1 ? categories.find((c) => c.handle === state.categoria[0]) : null
+  const brandItem = state.marca.length === 1 ? brands.find((b) => b.handle === state.marca[0]) : null
+
+  // A Google van el catálogo, cada categoría y cada marca. Búsquedas, filtros
+  // combinados, orden y páginas siguientes no se indexan (serían casi copias).
+  const otherFilters =
+    state.q ||
+    state.oferta ||
+    state.min !== null ||
+    state.max !== null ||
+    state.pagina > 1 ||
+    LIST_PARAMS.some((p) => p !== 'categoria' && p !== 'marca' && state[p].length > 0) ||
+    state.categoria.length > 1 ||
+    state.marca.length > 1 ||
+    (category && brandItem)
+  const landing = brandItem ?? category
+  const name = brandItem ? `Relojes y productos ${brandItem.title}` : category ? category.name : 'Catálogo'
+  const path = brandItem ? `/catalogo?marca=${brandItem.handle}` : category ? `/catalogo?categoria=${category.handle}` : '/catalogo'
   return {
-    title: category ? `${category.name} | Catálogo` : 'Catálogo',
-    alternates: { canonical: category ? `/catalogo?categoria=${category.handle}` : '/catalogo' },
+    title: landing ? `${name} | Catálogo` : 'Catálogo',
+    description: `${name} en ${brand.legalName}: precios, stock y compra online con envíos a todo el país.`,
+    alternates: { canonical: path },
+    openGraph: { url: absoluteUrl(path) },
+    ...(otherFilters ? { robots: { index: false, follow: true } } : {}),
   }
 }
 
@@ -143,6 +167,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Sear
 
   return (
     <>
+      {state.q && <SearchTracker term={state.q} />}
       <div className="bg-ink text-white pt-12 pb-10">
         <div className="wrap">
           <h1 className="text-[clamp(2.2rem,5vw,3.6rem)] mb-2">{heading}</h1>

@@ -8,6 +8,9 @@ import ProductGallery from '@/components/ProductGallery'
 import ProductPurchase from '@/components/ProductPurchase'
 import { ProductGrid } from '@/components/ProductCard'
 import { t } from '@/lib/texts'
+import { formatMoney } from '@/lib/format'
+import { jsonLd, productJsonLd } from '@/lib/seo'
+import { ViewItemTracker } from '@/components/Trackers'
 
 type Params = Promise<{ slug: string }>
 
@@ -16,12 +19,23 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   const product = await getProductBySlug(slug)
   if (!product) return {}
   const name = product.name
-  const description = product.description ?? (product.specs.join(' · ') || undefined)
+  // Al compartir por WhatsApp o Instagram, la vista previa muestra el precio.
+  const price = formatMoney(product.price, product.currency)
+  const detail = product.description ?? (product.specs.join(' · ') || null)
+  const description = [price, detail].filter(Boolean).join(' · ')
+  const image = product.images.slice(0, 1)
   return {
     title: name,
     description,
     alternates: { canonical: `/producto/${slug}` },
-    openGraph: { title: name, description, url: absoluteUrl(`/producto/${slug}`), images: product.images.slice(0, 1) },
+    openGraph: {
+      type: 'website',
+      title: name,
+      description,
+      url: absoluteUrl(`/producto/${slug}`),
+      images: image.map((url) => ({ url, alt: name })),
+    },
+    twitter: { card: 'summary_large_image', title: name, description, images: image },
   }
 }
 
@@ -39,6 +53,10 @@ export default async function ProductPage({ params }: { params: Params }) {
 
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(productJsonLd(product)) }} />
+      <ViewItemTracker
+        item={{ id: product.id, name, brand: product.brand, category: mainCategory?.name, price: product.price }}
+      />
       <section className="py-8 sm:py-12">
         <div className="wrap">
           <nav aria-label="Ruta" className="text-[0.92rem] text-muted mb-6 flex flex-wrap gap-1.5">

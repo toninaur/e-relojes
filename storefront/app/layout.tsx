@@ -2,6 +2,10 @@ import type { Metadata, Viewport } from 'next'
 import { Figtree, Fraunces } from 'next/font/google'
 import { brand } from '@/lib/brand'
 import { CartProvider } from '@/lib/CartContext'
+import SiteHeader from '@/components/SiteHeader'
+import SiteFooter from '@/components/SiteFooter'
+import WhatsAppFloat from '@/components/WhatsAppFloat'
+import Analytics from '@/components/Analytics'
 import './globals.css'
 
 const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-fraunces', display: 'swap' })
@@ -12,6 +16,7 @@ export const metadata: Metadata = {
   title: { default: `${brand.legalName} | Relojes, perfumes y accesorios en Asunción`, template: `%s | ${brand.name}` },
   description: brand.description,
   openGraph: { type: 'website', siteName: brand.legalName, locale: 'es_PY', images: ['/images/seiko-gmt.jpg'] },
+  twitter: { card: 'summary_large_image' },
   ...(brand.demo ? { robots: { index: false, follow: false } } : {}),
 }
 
@@ -31,7 +36,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             Sitio de demostración: los productos, precios y pedidos no son reales.
           </div>
         )}
-        <CartProvider>{children}</CartProvider>
+        <CartProvider>
+          <SiteHeader />
+          <main className="flex-1">{children}</main>
+          <SiteFooter />
+          <WhatsAppFloat />
+        </CartProvider>
+        <Analytics />
       </body>
     </html>
   )

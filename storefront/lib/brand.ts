@@ -25,6 +25,13 @@ export const brand = {
   location: {
     address: 'Radio Operadores del Chaco casi Celsa Speratti 968, barrio Mburicao, Asunción',
     hours: ['Lunes a viernes, 9:00 a 18:00', 'Sábados, 9:00 a 14:00'],
+    // Lo mismo, para buscadores (datos estructurados). Mantener igual que hours.
+    openingHours: [
+      { days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], opens: '09:00', closes: '18:00' },
+      { days: ['Saturday'], opens: '09:00', closes: '14:00' },
+    ],
+    city: 'Asunción',
+    geo: { lat: -25.3031824, lng: -57.5984128 },
     mapsUrl:
       'https://www.google.com/maps/place/e-relojes+Paraguay/@-25.3029362,-57.5994267,18.08z/data=!4m6!3m5!1s0x945da888291a5e8d:0x49cdb17e548288ac!8m2!3d-25.3031824!4d-57.5984128!16s%2Fg%2F11gfj4_mtz',
     mapEmbedUrl: 'https://www.google.com/maps?q=-25.3031824,-57.5984128&z=17&output=embed',

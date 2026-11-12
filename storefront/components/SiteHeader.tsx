@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { Menu, ShoppingBag, X } from 'lucide-react'
 import { brand, whatsappUrl } from '@/lib/brand'
 import { useCart } from '@/lib/CartContext'
+import HeaderSearch from './HeaderSearch'
 
 // Pestañas principales. "Cómo comprar" y "Local" son secciones de la portada.
 const TABS = [
@@ -72,6 +73,8 @@ export default function SiteHeader() {
               WhatsApp
             </a>
           </nav>
+
+          <HeaderSearch onOpen={() => setOpen(false)} />
 
           <Link
             href="/carrito"
