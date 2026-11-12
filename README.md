@@ -115,10 +115,10 @@ funciona como tienda real.
 
 ## Conector con Aronium
 
-El precio normal y el stock vienen de Aronium, el sistema de caja del local. El
-conector (`connector/`, ver su [README](connector/README.md)) lee la base de
-Aronium y llama a `POST /admin/aronium/sync` (`backend/src/lib/aronium-sync.ts`)
-con una clave secreta de API. El código de Aronium es el SKU de la variante;
+El precio normal y el stock vienen de Aronium, el sistema de caja del local. Un
+agente en la PC del local (`connector/`, ver su [README](connector/README.md)) lee la base de
+Aronium y la manda a `POST /admin/aronium/sync`; el backend (`backend/src/lib/aronium-sync.ts`) compara y aplica,
+y el panel muestra el estado y el historial en **Aronium**. El código de Aronium es el SKU de la variante;
 los códigos nuevos se crean como productos en borrador.
 
 ## Pendiente

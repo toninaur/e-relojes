@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
-// Lectura de la base de Aronium (SQLite, `pos.db`). Solo lectura: el conector
+// Lectura de la base de Aronium (SQLite, `pos.db`). Solo lectura: el agente
 // nunca escribe en Aronium.
 
 /**
  * @typedef {{
  *   code: string, name: string, description: string | null, price: number,
  *   stock: number, enabled: boolean, group: string | null,
- *   image: { base64: string, mimeType: string } | null, hash: string
+ *   image: { base64: string, mimeType: string } | null, image_hash: string | null
  * }} AroniumProduct
  */
 
@@ -42,7 +42,7 @@ export function readProducts(dbPath, options = {}) {
       const code = String(row.Code ?? '').trim()
       if (!code) continue
       const image = toImage(row.Image)
-      const product = {
+      products.push({
         code,
         name: String(row.Name ?? '').trim() || code,
         description: row.Description ? String(row.Description).trim() || null : null,
@@ -51,12 +51,8 @@ export function readProducts(dbPath, options = {}) {
         enabled: Boolean(row.IsEnabled),
         group: row.GroupName ? String(row.GroupName).trim() || null : null,
         image,
-        hash: '',
-      }
-      // Desactivado en Aronium = no se vende online.
-      if (!product.enabled) product.stock = 0
-      product.hash = hashOf(product)
-      products.push(product)
+        image_hash: image ? createHash('sha1').update(image.base64).digest('hex') : null,
+      })
     }
     return products
   } finally {
@@ -73,12 +69,4 @@ function toImage(blob) {
   else if (bytes.subarray(0, 4).toString('hex') === '89504e47') mimeType = 'image/png'
   if (!mimeType) return null
   return { base64: bytes.toString('base64'), mimeType }
-}
-
-/** Huella de lo que importa a la tienda, para mandar solo lo que cambió. */
-function hashOf(/** @type {AroniumProduct} */ p) {
-  const imageHash = p.image ? createHash('sha1').update(p.image.base64).digest('hex') : ''
-  return createHash('sha1')
-    .update(JSON.stringify([p.name, p.description, p.price, p.stock, p.enabled, p.group, imageHash]))
-    .digest('hex')
 }

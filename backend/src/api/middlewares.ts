@@ -16,9 +16,9 @@ export default defineMiddlewares({
       ],
     },
     {
-      // El conector de Aronium puede mandar fotos (base64) en el lote.
+      // El agente de Aronium manda el catálogo entero y fotos (base64).
       method: ['POST'],
-      matcher: '/admin/aronium/sync',
+      matcher: '/admin/aronium/*',
       bodyParser: { sizeLimit: '25mb' },
     },
   ],

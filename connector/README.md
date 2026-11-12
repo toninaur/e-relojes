@@ -1,8 +1,16 @@
-# Conector Aronium → tienda online
+# Agente Aronium → tienda online
 
-Programa que corre en la computadora del local donde está Aronium. Cada 5
-minutos lee la base de Aronium (solo lectura) y le manda a la tienda lo que
-cambió.
+El conector tiene tres partes:
+
+| Parte | Dónde corre | Qué hace |
+|---|---|---|
+| Agente (esta carpeta) | Computadora del local, junto a Aronium | Cada 5 minutos lee la base de Aronium (solo lectura) y manda el catálogo entero a la tienda. Si no puede leerla, avisa el error. |
+| Servidor (`backend/src/lib/aronium-sync.ts`, módulo `backend/src/modules/aronium`) | Backend de la tienda | Compara con la tienda, aplica los cambios, crea los productos nuevos, pide las fotos que faltan y guarda el historial. |
+| Panel (`backend/src/admin/routes/aronium`) | Panel de la tienda → **Aronium** | Estado del agente (conectado, sin conexión, con errores), productos nuevos para completar e historial de cambios (precio anterior → nuevo). |
+
+Rutas, con clave secreta de API: `POST /admin/aronium/sync` (catálogo o error),
+`POST /admin/aronium/images` (fotos que pidió la tienda) y
+`GET /admin/aronium/status` (lo que muestra el panel).
 
 | En Aronium | En la tienda |
 |---|---|
@@ -10,12 +18,12 @@ cambió.
 | Precio | Precio normal. Las ofertas (lista "Ofertas") no se tocan |
 | Stock (suma de los depósitos, o el de `warehouseId`) | Stock del local. Lo vendido online y no entregado queda reservado y se descuenta |
 | Producto desactivado | Stock 0 (no se vende online) |
-| Código que no existe en la tienda | Producto nuevo **en borrador**, con nombre, descripción, foto y categoría (si un grupo de Aronium se llama igual que una categoría) |
+| Código que no existe en la tienda | Producto nuevo **en borrador**, con nombre, descripción y categoría (si un grupo de Aronium se llama igual que una categoría). La foto de Aronium, si tiene, llega en un segundo paso |
 
 Título, fotos, descripción y características de un producto que ya existe se
 manejan en el panel: el conector no las pisa. Precio y stock se cambian siempre
-en Aronium; un cambio en el panel vuelve al valor de Aronium en la próxima
-sincronización completa (una vez por día).
+en Aronium: la tienda compara en cada pasada, así que un cambio hecho en el panel
+vuelve al valor de Aronium a los pocos minutos.
 
 Para que un producto con variantes (por ejemplo, colores) quede conectado, cada
 variante lleva como SKU el código de Aronium de ese modelo.
@@ -42,10 +50,9 @@ Para quitarlo: `install.ps1 -Uninstall`.
 
 ## Uso y diagnóstico
 
-- `connector.log`: qué se mandó en cada pasada y los errores.
-- `npm run once`: una pasada a mano (solo los cambios).
-- `npm run full`: manda todo de nuevo.
-- `state.json` guarda qué se mandó; borrarlo fuerza una sincronización completa.
+- Panel de la tienda → **Aronium**: el estado y los errores, desde cualquier lado.
+- `connector.log`: el registro en la computadora del local.
+- `npm run once`: una pasada a mano.
 
 Aronium Pro (varias cajas) usa SQL Server en vez de `pos.db`: este conector
 lee solo la versión con `pos.db`.

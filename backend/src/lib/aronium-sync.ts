@@ -3,29 +3,36 @@ import { ContainerRegistrationKeys, MedusaError, ProductStatus } from '@medusajs
 import {
   batchInventoryItemLevelsWorkflow,
   createProductsWorkflow,
+  updateProductsWorkflow,
   updateProductVariantsWorkflow,
   uploadFilesWorkflow,
 } from '@medusajs/medusa/core-flows'
 import { z } from 'zod'
+import { ARONIUM_MODULE } from '../modules/aronium'
+import type AroniumModuleService from '../modules/aronium/service'
 
 // Sincronización con Aronium (el sistema de caja del local).
 //
-// El conector que corre en la computadora del local manda los productos de
-// Aronium que cambiaron. Un producto de Aronium es una variante de la tienda,
-// unidas por el código: `Product.Code` de Aronium = SKU de la variante.
+// El agente de la PC del local solo lee Aronium y manda el catálogo entero en
+// cada pasada. Acá se compara con la tienda y se aplica. Un producto de
+// Aronium es una variante de la tienda, unidas por el código: `Product.Code`
+// de Aronium = SKU de la variante.
 //
-// - Variante existente: Aronium manda en el precio normal y el stock. El resto
-//   (título, fotos, descripción, filtros, ofertas) se maneja en el panel y no
-//   se toca.
-// - Código que no existe en la tienda: se crea un producto en borrador, con
-//   nombre, descripción y foto de Aronium (si tiene), para que lo completen y
-//   lo publiquen desde el panel.
+// - Variante existente: Aronium manda en el precio normal y el stock. Título,
+//   fotos, descripción, filtros y ofertas se manejan en el panel.
+// - Código nuevo: producto en borrador con nombre, descripción y categoría. La
+//   foto se le pide después al agente (`images_wanted`), para no mandar fotos
+//   en cada pasada.
 //
-// El stock de Aronium va a `stocked_quantity` del local. Los pedidos online sin
-// entregar quedan como reserva, así que lo disponible en la tienda es el stock
-// de Aronium menos lo ya vendido online.
+// El stock de Aronium va a `stocked_quantity` del local. Lo vendido online sin
+// entregar queda como reserva, así que lo disponible en la tienda es el stock
+// de Aronium menos esas reservas.
+//
+// Cada pasada que cambia algo (o que falla) queda en el historial que muestra
+// el panel (admin → Aronium).
 
 const CURRENCY = 'pyg'
+const SKU_CHUNK = 500
 
 export const aroniumItemSchema = z.object({
   code: z.string().trim().min(1),
@@ -33,30 +40,51 @@ export const aroniumItemSchema = z.object({
   description: z.string().nullish(),
   price: z.number().nonnegative(),
   stock: z.number(),
-  // Desactivado en Aronium: llega con stock 0 y, si no existe en la tienda, no se crea.
+  // Desactivado en Aronium: stock 0 y, si no existe en la tienda, no se crea.
   enabled: z.boolean().default(true),
   group: z.string().nullish(),
-  image: z
-    .object({ base64: z.string().min(1), mimeType: z.string().default('image/jpeg') })
-    .nullish(),
+  image_hash: z.string().nullish(),
+})
+
+const agentSchema = z.object({
+  version: z.string().nullish(),
+  host: z.string().nullish(),
 })
 
 export const aroniumSyncSchema = z.object({
-  items: z.array(aroniumItemSchema).max(200),
+  agent: agentSchema.default({}),
+  items: z.array(aroniumItemSchema).max(50000).default([]),
+  // El agente no pudo leer Aronium: se registra el error y no se toca la tienda.
+  error: z.string().nullish(),
+})
+
+export const aroniumImagesSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        code: z.string().trim().min(1),
+        base64: z.string().min(1),
+        mimeType: z.enum(['image/jpeg', 'image/png']),
+        image_hash: z.string().nullish(),
+      })
+    )
+    .max(20),
 })
 
 export type AroniumItem = z.infer<typeof aroniumItemSchema>
-
-export type AroniumSyncResult = {
-  prices_updated: string[]
-  stock_updated: string[]
-  created: string[]
-  unchanged: number
+type ChangeInput = {
+  code: string
+  product_id?: string | null
+  product_title?: string | null
+  field: 'price' | 'stock' | 'created' | 'image'
+  old_value?: string | null
+  new_value?: string | null
 }
 
 type VariantRow = {
   id: string
   sku: string | null
+  product?: { id: string; title: string; status: string; thumbnail?: string | null; metadata?: Record<string, unknown> | null } | null
   price_set?: { prices?: { amount: number; currency_code: string; price_list_id?: string | null }[] } | null
   inventory_items?: {
     inventory_item_id: string
@@ -64,36 +92,82 @@ type VariantRow = {
   }[] | null
 }
 
-export async function syncAroniumItems(container: MedusaContainer, input: AroniumItem[]): Promise<AroniumSyncResult> {
-  const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const result: AroniumSyncResult = { prices_updated: [], stock_updated: [], created: [], unchanged: 0 }
+export async function syncAroniumSnapshot(container: MedusaContainer, input: z.infer<typeof aroniumSyncSchema>) {
+  const started = Date.now()
+  const aronium: AroniumModuleService = container.resolve(ARONIUM_MODULE)
 
-  // El mismo código dos veces en un lote: vale el último.
+  if (input.error) {
+    await touchAgent(aronium, input.agent, { error: input.error })
+    // El mismo error en cada pasada se anota una sola vez en el historial.
+    const [last] = await aronium.listAroniumRuns({}, { order: { created_at: 'DESC' }, take: 1 })
+    if (last?.status !== 'error' || last.error !== input.error) {
+      await aronium.createAroniumRuns({ status: 'error', error: input.error, duration_ms: Date.now() - started })
+    }
+    return { prices_updated: 0, stock_updated: 0, created: 0, unchanged: 0, images_wanted: [] as string[] }
+  }
+
+  try {
+    const outcome = await applySnapshot(container, input.items)
+    await touchAgent(aronium, input.agent, { productsTotal: input.items.length })
+    if (outcome.changes.length) {
+      await recordRun(aronium, outcome.changes, {
+        items_received: input.items.length,
+        duration_ms: Date.now() - started,
+      })
+    }
+    const count = (field: ChangeInput['field']) => outcome.changes.filter((c) => c.field === field).length
+    return {
+      prices_updated: count('price'),
+      stock_updated: count('stock'),
+      created: count('created'),
+      unchanged: outcome.unchanged,
+      images_wanted: outcome.imagesWanted,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await touchAgent(aronium, input.agent, { error: `La tienda no pudo aplicar los cambios: ${message}` })
+    await aronium.createAroniumRuns({
+      status: 'error',
+      error: `La tienda no pudo aplicar los cambios: ${message}`,
+      items_received: input.items.length,
+      duration_ms: Date.now() - started,
+    })
+    throw error
+  }
+}
+
+async function applySnapshot(container: MedusaContainer, input: AroniumItem[]) {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const changes: ChangeInput[] = []
+  let unchanged = 0
+
+  // El mismo código dos veces: vale el último.
   const items = [...new Map(input.map((i) => [i.code, i])).values()]
-  if (!items.length) return result
+  if (!items.length) return { changes, unchanged, imagesWanted: [] as string[] }
 
   const { data: stockLocations } = await query.graph({ entity: 'stock_location', fields: ['id'] })
   const locationId = stockLocations[0]?.id
   if (!locationId) throw new MedusaError(MedusaError.Types.NOT_FOUND, 'La tienda no tiene un local de stock.')
 
-  const variants = (await findVariants(container, items.map((i) => i.code))) as VariantRow[]
+  const variants = await findVariants(container, items.map((i) => i.code))
   const bySku = new Map(variants.map((v) => [v.sku!, v]))
 
-  // ---- Variantes existentes: precio y stock ---------------------------------
   const priceUpdates: { id: string; prices: { currency_code: string; amount: number }[] }[] = []
   const levelCreates: { inventory_item_id: string; location_id: string; stocked_quantity: number }[] = []
   const levelUpdates: { id: string; inventory_item_id: string; location_id: string; stocked_quantity: number }[] = []
+  const imagesWanted: string[] = []
 
   for (const item of items) {
     const variant = bySku.get(item.code)
     if (!variant) continue
-    const stock = Math.max(0, Math.floor(item.stock))
+    const product = { product_id: variant.product?.id, product_title: variant.product?.title }
+    const stock = item.enabled ? Math.max(0, Math.floor(item.stock)) : 0
     let changed = false
 
     const base = variant.price_set?.prices?.find((p) => !p.price_list_id && p.currency_code === CURRENCY)
     if (!base || Number(base.amount) !== item.price) {
       priceUpdates.push({ id: variant.id, prices: [{ currency_code: CURRENCY, amount: item.price }] })
-      result.prices_updated.push(item.code)
+      changes.push({ code: item.code, ...product, field: 'price', old_value: base ? String(base.amount) : null, new_value: String(item.price) })
       changed = true
     }
 
@@ -101,34 +175,37 @@ export async function syncAroniumItems(container: MedusaContainer, input: Aroniu
     const inventoryItem = variant.inventory_items?.[0]
     if (inventoryItem) {
       const level = inventoryItem.inventory?.location_levels?.find((l) => l.location_id === locationId)
-      if (!level) {
-        levelCreates.push({ inventory_item_id: inventoryItem.inventory_item_id, location_id: locationId, stocked_quantity: stock })
-      } else if (Number(level.stocked_quantity) !== stock) {
-        levelUpdates.push({ id: level.id, inventory_item_id: inventoryItem.inventory_item_id, location_id: locationId, stocked_quantity: stock })
-      }
-      if (!level || Number(level.stocked_quantity) !== stock) {
-        result.stock_updated.push(item.code)
+      const current = level ? Number(level.stocked_quantity) : null
+      if (current !== stock) {
+        if (level) levelUpdates.push({ id: level.id, inventory_item_id: inventoryItem.inventory_item_id, location_id: locationId, stocked_quantity: stock })
+        else levelCreates.push({ inventory_item_id: inventoryItem.inventory_item_id, location_id: locationId, stocked_quantity: stock })
+        changes.push({ code: item.code, ...product, field: 'stock', old_value: current === null ? null : String(current), new_value: String(stock) })
         changed = true
       }
     }
 
-    if (!changed) result.unchanged++
+    // Foto de Aronium solo para los productos que creó el conector y siguen sin foto.
+    if (item.image_hash && variant.product && !variant.product.thumbnail && variant.product.metadata?.aronium_code) {
+      imagesWanted.push(item.code)
+    }
+
+    if (!changed) unchanged++
   }
 
   if (priceUpdates.length) {
-    // Solo reemplaza los precios base: los de la lista "Ofertas" no se tocan.
+    // Reemplaza solo los precios base: los de la lista "Ofertas" no se tocan.
     await updateProductVariantsWorkflow(container).run({ input: { product_variants: priceUpdates } })
   }
 
-  // ---- Códigos nuevos: producto en borrador --------------------------------
   const missing = items.filter((i) => !bySku.has(i.code) && i.enabled)
   if (missing.length) {
     const created = await createDraftProducts(container, missing)
-    result.created.push(...created.map((c) => c.code))
     for (const c of created) {
+      changes.push({ code: c.code, product_id: c.product_id, product_title: c.title, field: 'created', new_value: String(c.stock) })
       if (c.inventory_item_id) {
         levelCreates.push({ inventory_item_id: c.inventory_item_id, location_id: locationId, stocked_quantity: c.stock })
       }
+      if (c.image_hash) imagesWanted.push(c.code)
     }
   }
 
@@ -136,27 +213,147 @@ export async function syncAroniumItems(container: MedusaContainer, input: Aroniu
     await batchInventoryItemLevelsWorkflow(container).run({ input: { create: levelCreates, update: levelUpdates, delete: [] } })
   }
 
-  return result
+  return { changes, unchanged, imagesWanted }
 }
 
-async function findVariants(container: MedusaContainer, skus: string[]) {
-  const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const { data } = await query.graph({
-    entity: 'product_variant',
-    fields: [
-      'id',
-      'sku',
-      'price_set.prices.amount',
-      'price_set.prices.currency_code',
-      'price_set.prices.price_list_id',
-      'inventory_items.inventory_item_id',
-      'inventory_items.inventory.location_levels.id',
-      'inventory_items.inventory.location_levels.location_id',
-      'inventory_items.inventory.location_levels.stocked_quantity',
-    ],
-    filters: { sku: skus },
+/** Fotos que pidió la tienda: se suben y se asignan a productos sin foto. */
+export async function attachAroniumImages(container: MedusaContainer, input: z.infer<typeof aroniumImagesSchema>) {
+  const started = Date.now()
+  const aronium: AroniumModuleService = container.resolve(ARONIUM_MODULE)
+  const variants = await findVariants(container, input.items.map((i) => i.code))
+  const targets = input.items.flatMap((item) => {
+    const product = variants.find((v) => v.sku === item.code)?.product
+    return product && !product.thumbnail ? [{ item, product }] : []
   })
-  return data
+  if (!targets.length) return { images_added: 0 }
+
+  const { result: files } = await uploadFilesWorkflow(container).run({
+    input: {
+      files: targets.map(({ item }) => ({
+        filename: `aronium-${slugify(item.code)}.${item.mimeType === 'image/png' ? 'png' : 'jpg'}`,
+        mimeType: item.mimeType,
+        content: item.base64,
+        access: 'public' as const,
+      })),
+    },
+  })
+
+  const updates = targets.flatMap(({ product }, index) => {
+    const url = files[index]?.url
+    return url ? [{ id: product.id, images: [{ url }], thumbnail: url }] : []
+  })
+  if (updates.length) {
+    await updateProductsWorkflow(container).run({ input: { products: updates } })
+    await recordRun(
+      aronium,
+      targets.slice(0, updates.length).map(({ item, product }) => ({
+        code: item.code,
+        product_id: product.id,
+        product_title: product.title,
+        field: 'image' as const,
+      })),
+      { items_received: input.items.length, duration_ms: Date.now() - started }
+    )
+  }
+  return { images_added: updates.length }
+}
+
+/** Lo que muestra el panel: estado del agente, productos para completar e historial. */
+export async function getAroniumStatus(container: MedusaContainer, { limit = 20, offset = 0 } = {}) {
+  const aronium: AroniumModuleService = container.resolve(ARONIUM_MODULE)
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+
+  const [agent] = await aronium.listAroniumAgents({}, { take: 1 })
+  const [runs, runsCount] = await aronium.listAndCountAroniumRuns(
+    {},
+    { relations: ['changes'], order: { created_at: 'DESC' }, take: limit, skip: offset }
+  )
+
+  // Borradores creados por el conector, para que los completen y publiquen.
+  const { data: drafts } = await query.graph({
+    entity: 'product',
+    fields: ['id', 'title', 'thumbnail', 'created_at', 'metadata', 'variants.sku'],
+    filters: { status: ProductStatus.DRAFT },
+  })
+
+  return {
+    agent: agent ?? null,
+    drafts: drafts
+      .filter((p) => p.metadata?.aronium_code)
+      .map((p) => ({
+        id: p.id,
+        title: p.title,
+        code: String(p.metadata!.aronium_code),
+        has_image: Boolean(p.thumbnail),
+        created_at: p.created_at,
+      })),
+    runs,
+    runs_count: runsCount,
+  }
+}
+
+async function touchAgent(
+  aronium: AroniumModuleService,
+  agent: z.infer<typeof agentSchema>,
+  { error, productsTotal }: { error?: string; productsTotal?: number }
+) {
+  const now = new Date()
+  const data = {
+    last_seen_at: now,
+    version: agent.version ?? null,
+    host: agent.host ?? null,
+    ...(productsTotal !== undefined ? { products_total: productsTotal } : {}),
+    ...(error ? { last_error: error, last_error_at: now } : { last_error: null }),
+  }
+  const [existing] = await aronium.listAroniumAgents({}, { take: 1 })
+  if (existing) await aronium.updateAroniumAgents({ id: existing.id, ...data })
+  else await aronium.createAroniumAgents(data)
+}
+
+async function recordRun(
+  aronium: AroniumModuleService,
+  changes: ChangeInput[],
+  extra: { items_received: number; duration_ms: number }
+) {
+  const count = (field: ChangeInput['field']) => changes.filter((c) => c.field === field).length
+  const run = await aronium.createAroniumRuns({
+    status: 'ok',
+    ...extra,
+    prices_updated: count('price'),
+    stock_updated: count('stock'),
+    created: count('created'),
+    images_added: count('image'),
+  })
+  await aronium.createAroniumChanges(changes.map((c) => ({ ...c, run_id: run.id })))
+}
+
+async function findVariants(container: MedusaContainer, skus: string[]): Promise<VariantRow[]> {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const rows: VariantRow[] = []
+  for (let i = 0; i < skus.length; i += SKU_CHUNK) {
+    const { data } = await query.graph({
+      entity: 'product_variant',
+      fields: [
+        'id',
+        'sku',
+        'product.id',
+        'product.title',
+        'product.status',
+        'product.thumbnail',
+        'product.metadata',
+        'price_set.prices.amount',
+        'price_set.prices.currency_code',
+        'price_set.prices.price_list_id',
+        'inventory_items.inventory_item_id',
+        'inventory_items.inventory.location_levels.id',
+        'inventory_items.inventory.location_levels.location_id',
+        'inventory_items.inventory.location_levels.stocked_quantity',
+      ],
+      filters: { sku: skus.slice(i, i + SKU_CHUNK) },
+    })
+    rows.push(...(data as unknown as VariantRow[]))
+  }
+  return rows
 }
 
 async function createDraftProducts(container: MedusaContainer, items: AroniumItem[]) {
@@ -168,13 +365,11 @@ async function createDraftProducts(container: MedusaContainer, items: AroniumIte
   const categoryByName = new Map(categories.map((c) => [normalize(c.name), c.id]))
 
   const handles = await uniqueHandles(container, items)
-  const images = await uploadImages(container, items)
 
-  const { result: products } = await createProductsWorkflow(container).run({
+  await createProductsWorkflow(container).run({
     input: {
       products: items.map((item) => {
         const categoryId = item.group ? categoryByName.get(normalize(item.group)) : undefined
-        const image = images.get(item.code)
         return {
           title: item.name,
           handle: handles.get(item.code)!,
@@ -182,8 +377,6 @@ async function createDraftProducts(container: MedusaContainer, items: AroniumIte
           status: ProductStatus.DRAFT,
           category_ids: categoryId ? [categoryId] : [],
           shipping_profile_id: shippingProfiles[0]?.id,
-          images: image ? [{ url: image }] : [],
-          thumbnail: image,
           metadata: { aronium_code: item.code, ...(item.group ? { aronium_group: item.group } : {}) },
           options: [{ title: 'Modelo', values: ['Único'] }],
           variants: [
@@ -201,14 +394,21 @@ async function createDraftProducts(container: MedusaContainer, items: AroniumIte
     },
   })
 
-  const variants = (await findVariants(container, items.map((i) => i.code))) as VariantRow[]
-  return items
-    .filter((item) => products.some((p) => p.handle === handles.get(item.code)))
-    .map((item) => ({
-      code: item.code,
-      stock: Math.max(0, Math.floor(item.stock)),
-      inventory_item_id: variants.find((v) => v.sku === item.code)?.inventory_items?.[0]?.inventory_item_id,
-    }))
+  const variants = await findVariants(container, items.map((i) => i.code))
+  return items.flatMap((item) => {
+    const variant = variants.find((v) => v.sku === item.code)
+    if (!variant?.product) return []
+    return [
+      {
+        code: item.code,
+        product_id: variant.product.id,
+        title: variant.product.title,
+        stock: Math.max(0, Math.floor(item.stock)),
+        image_hash: item.image_hash ?? null,
+        inventory_item_id: variant.inventory_items?.[0]?.inventory_item_id,
+      },
+    ]
+  })
 }
 
 async function uniqueHandles(container: MedusaContainer, items: AroniumItem[]) {
@@ -224,26 +424,6 @@ async function uniqueHandles(container: MedusaContainer, items: AroniumItem[]) {
     handles.set(code, candidate)
   }
   return handles
-}
-
-async function uploadImages(container: MedusaContainer, items: AroniumItem[]) {
-  const withImage = items.filter((i) => i.image)
-  const urls = new Map<string, string>()
-  if (!withImage.length) return urls
-  const { result } = await uploadFilesWorkflow(container).run({
-    input: {
-      files: withImage.map((i) => ({
-        filename: `aronium-${slugify(i.code)}.${i.image!.mimeType === 'image/png' ? 'png' : 'jpg'}`,
-        mimeType: i.image!.mimeType,
-        content: i.image!.base64,
-        access: 'public' as const,
-      })),
-    },
-  })
-  withImage.forEach((item, index) => {
-    if (result[index]?.url) urls.set(item.code, result[index].url)
-  })
-  return urls
 }
 
 function normalize(text: string) {

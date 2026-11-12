@@ -1,15 +1,14 @@
 {
   "name": "@erelojes/connector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Conector Aronium → tienda online (corre en la computadora del local)",
+  "description": "Agente Aronium → tienda online (corre en la computadora del local)",
   "type": "module",
   "engines": {
     "node": ">=22.13"
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/index.mjs",
-    "once": "node --disable-warning=ExperimentalWarning src/index.mjs --once",
-    "full": "node --disable-warning=ExperimentalWarning src/index.mjs --full"
+    "once": "node --disable-warning=ExperimentalWarning src/index.mjs --once"
   }
 }

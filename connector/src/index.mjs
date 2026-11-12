@@ -4,107 +4,92 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readProducts } from './aronium.mjs'
 
-// Conector Aronium → tienda online.
+// Agente Aronium → tienda online.
 //
-// Cada `intervalMinutes` lee los productos de Aronium y manda a la tienda los
-// que cambiaron (precio, stock, nombre, etc.). Una vez por día manda todo, por
-// si algo se cambió a mano en el panel.
+// Cada `intervalMinutes` lee el catálogo de Aronium y lo manda entero a la
+// tienda, que compara, aplica los cambios y guarda el historial (panel →
+// Aronium). Si la tienda pide fotos (productos nuevos sin foto), las manda
+// después. Si no puede leer Aronium, le avisa a la tienda para que el panel
+// muestre el error.
 //
 //   node src/index.mjs          corre en bucle (lo que usa la tarea programada)
 //   node src/index.mjs --once   una sola pasada y termina
-//   node src/index.mjs --full   una pasada mandando todo
 
+const VERSION = '0.2.0'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const CONFIG_PATH = path.join(ROOT, 'config.json')
-const STATE_PATH = path.join(ROOT, 'state.json')
 const LOG_PATH = path.join(ROOT, 'connector.log')
-const FULL_SYNC_EVERY_MS = 24 * 60 * 60 * 1000
-const BATCH_SIZE = 50
-const BATCH_SIZE_WITH_IMAGES = 10
+const IMAGE_BATCH_SIZE = 10
 
-const args = new Set(process.argv.slice(2))
 const config = loadConfig()
+const agent = { version: VERSION, host: os.hostname() }
 
-if (args.has('--once') || args.has('--full')) {
-  const ok = await runOnce({ forceFull: args.has('--full') })
-  process.exitCode = ok ? 0 : 1
+if (process.argv.includes('--once')) {
+  process.exitCode = (await runOnce()) ? 0 : 1
 } else {
-  log(`Conector iniciado: ${config.storeUrl}, cada ${config.intervalMinutes} min`)
+  log(`Agente iniciado: ${config.storeUrl}, cada ${config.intervalMinutes} min`)
   for (;;) {
-    await runOnce({ forceFull: false })
+    await runOnce()
     await new Promise((r) => setTimeout(r, config.intervalMinutes * 60 * 1000))
   }
 }
 
-async function runOnce({ forceFull }) {
+async function runOnce() {
+  let products
   try {
-    const state = loadState()
-    const full = forceFull || !state.lastFullSync || Date.now() - Date.parse(state.lastFullSync) > FULL_SYNC_EVERY_MS
-    const products = readProducts(config.aroniumDb, { warehouseId: config.warehouseId })
-    const pending = full ? products : products.filter((p) => state.hashes[p.code] !== p.hash)
+    products = readProducts(config.aroniumDb, { warehouseId: config.warehouseId })
+  } catch (error) {
+    const message = `No se pudo leer Aronium (${config.aroniumDb}): ${errorMessage(error)}`
+    log(`ERROR: ${message}`)
+    // Que el panel lo muestre; si tampoco hay conexión, queda solo en el log.
+    await post('/admin/aronium/sync', { agent, error: message }).catch(() => {})
+    return false
+  }
 
-    if (!pending.length) return true
+  try {
+    const result = await post('/admin/aronium/sync', {
+      agent,
+      items: products.map(({ image, ...item }) => item),
+    })
+    const summary = [
+      result.created && `${result.created} nuevos`,
+      result.prices_updated && `${result.prices_updated} precios`,
+      result.stock_updated && `${result.stock_updated} stocks`,
+    ].filter(Boolean)
+    if (summary.length) log(`${products.length} productos: ${summary.join(', ')}`)
 
-    const totals = { prices_updated: 0, stock_updated: 0, created: 0, unchanged: 0 }
-    // Las fotos solo sirven para crear productos: van únicamente con los
-    // códigos que la tienda todavía no recibió.
-    const isNew = (p) => !(p.code in state.hashes)
-    const batches = [
-      ...chunk(pending.filter((p) => !isNew(p) || !p.image), BATCH_SIZE),
-      ...chunk(pending.filter((p) => isNew(p) && p.image), BATCH_SIZE_WITH_IMAGES),
-    ]
-
-    for (const batch of batches) {
-      const result = await send(
-        batch.map((p) => ({
-          code: p.code,
-          name: p.name,
-          description: p.description,
-          price: p.price,
-          stock: p.stock,
-          enabled: p.enabled,
-          group: p.group,
-          image: isNew(p) ? p.image : null,
-        }))
-      )
-      totals.prices_updated += result.prices_updated.length
-      totals.stock_updated += result.stock_updated.length
-      totals.created += result.created.length
-      totals.unchanged += result.unchanged
-      if (result.created.length) log(`Productos nuevos en borrador: ${result.created.join(', ')}`)
-      for (const p of batch) state.hashes[p.code] = p.hash
-      saveState(state)
+    const wanted = new Set(result.images_wanted ?? [])
+    const images = products.filter((p) => p.image && wanted.has(p.code))
+    for (let i = 0; i < images.length; i += IMAGE_BATCH_SIZE) {
+      const batch = images.slice(i, i + IMAGE_BATCH_SIZE)
+      const sent = await post('/admin/aronium/images', {
+        items: batch.map((p) => ({ code: p.code, ...p.image, image_hash: p.image_hash })),
+      })
+      if (sent.images_added) log(`${sent.images_added} fotos enviadas`)
     }
-
-    if (full) {
-      // Códigos borrados en Aronium: se olvidan (la tienda los deja como están).
-      const codes = new Set(products.map((p) => p.code))
-      for (const code of Object.keys(state.hashes)) if (!codes.has(code)) delete state.hashes[code]
-      state.lastFullSync = new Date().toISOString()
-      saveState(state)
-    }
-
-    log(
-      `${full ? 'Sincronización completa' : 'Cambios'}: ${pending.length} productos leídos, ` +
-        `${totals.prices_updated} precios, ${totals.stock_updated} stocks, ${totals.created} nuevos, ${totals.unchanged} sin cambios`
-    )
     return true
   } catch (error) {
-    log(`ERROR: ${error instanceof Error ? error.message : String(error)}`)
+    log(`ERROR: ${errorMessage(error)}`)
     return false
   }
 }
 
-async function send(items) {
-  const response = await fetch(new URL('/admin/aronium/sync', config.storeUrl), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Basic ${Buffer.from(`${config.apiKey}:`).toString('base64')}`,
-    },
-    body: JSON.stringify({ items }),
-    signal: AbortSignal.timeout(120_000),
-  })
+async function post(pathname, body) {
+  let response
+  try {
+    response = await fetch(new URL(pathname, config.storeUrl), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Basic ${Buffer.from(`${config.apiKey}:`).toString('base64')}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    })
+  } catch (error) {
+    throw new Error(`Sin conexión con la tienda (${config.storeUrl}): ${errorMessage(error)}`)
+  }
+  if (response.status === 401) throw new Error('La tienda rechazó la clave (apiKey): revisá config.json.')
   if (!response.ok) {
     const text = await response.text().catch(() => '')
     throw new Error(`La tienda respondió ${response.status}: ${text.slice(0, 500)}`)
@@ -121,7 +106,7 @@ function loadConfig() {
   try {
     raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
   } catch (error) {
-    console.error(`config.json no es válido (${error.message}). En las rutas usá \\\\ o / en vez de \\.`)
+    console.error(`config.json no es válido (${errorMessage(error)}). En las rutas usá \\\\ o / en vez de \\.`)
     process.exit(1)
   }
   const cfg = {
@@ -137,26 +122,12 @@ function loadConfig() {
     console.error('config.json: faltan storeUrl o apiKey.')
     process.exit(1)
   }
-  if (!fs.existsSync(cfg.aroniumDb)) {
-    console.error(`No se encontró la base de Aronium en ${cfg.aroniumDb}. Revisá aroniumDb en config.json.`)
-    process.exit(1)
-  }
   return cfg
 }
 
-function loadState() {
-  try {
-    const state = JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'))
-    return { hashes: state.hashes ?? {}, lastFullSync: state.lastFullSync ?? null }
-  } catch {
-    return { hashes: {}, lastFullSync: null }
-  }
-}
-
-function saveState(state) {
-  const tmp = `${STATE_PATH}.tmp`
-  fs.writeFileSync(tmp, JSON.stringify(state))
-  fs.renameSync(tmp, STATE_PATH)
+function errorMessage(error) {
+  if (!(error instanceof Error)) return String(error)
+  return error.cause instanceof Error ? `${error.message} (${error.cause.message})` : error.message
 }
 
 function log(message) {
@@ -168,12 +139,6 @@ function log(message) {
     }
     fs.appendFileSync(LOG_PATH, `${line}\n`)
   } catch {
-    // Sin log en disco el conector sigue funcionando.
+    // Sin log en disco el agente sigue funcionando.
   }
-}
-
-function chunk(list, size) {
-  const out = []
-  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
-  return out
 }
