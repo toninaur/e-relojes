@@ -55,6 +55,9 @@ export default function CheckoutPage() {
   const [buyerName, setBuyerName] = useState('')
   const [buyerPhone, setBuyerPhone] = useState('')
   const [buyerEmail, setBuyerEmail] = useState('')
+  // Datos para la factura (opcionales).
+  const [buyerRuc, setBuyerRuc] = useState('')
+  const [buyerBusinessName, setBuyerBusinessName] = useState('')
 
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([])
   const [optionId, setOptionId] = useState<string | null>(null)
@@ -195,7 +198,13 @@ export default function CheckoutPage() {
         email: buyerEmail.trim() || undefined,
         shipping_address: address,
         billing_address: address,
-        metadata: { payment_method: paymentMethod, delivery_method: pickup ? 'pickup' : 'shipping', delivery_option: selectedOption.name },
+        metadata: {
+          ...(buyerRuc.trim() ? { ruc: buyerRuc.trim() } : {}),
+          ...(buyerBusinessName.trim() ? { razon_social: buyerBusinessName.trim() } : {}),
+          payment_method: paymentMethod,
+          delivery_method: pickup ? 'pickup' : 'shipping',
+          delivery_option: selectedOption.name,
+        },
       })
       if (updated.shipping_methods?.[0]?.shipping_option_id !== selectedOption.id) {
         await sdk.store.cart.addShippingMethod(cart.id, { option_id: selectedOption.id })
@@ -293,6 +302,33 @@ export default function CheckoutPage() {
                           autoComplete="email"
                           value={buyerEmail}
                           onChange={(e) => setBuyerEmail(e.target.value)}
+                          className="field"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="field-label" htmlFor="buyer-ruc">
+                          {t.buyerRuc}
+                        </label>
+                        <input
+                          id="buyer-ruc"
+                          inputMode="text"
+                          placeholder={t.buyerRucPlaceholder}
+                          value={buyerRuc}
+                          onChange={(e) => setBuyerRuc(e.target.value)}
+                          className="field"
+                        />
+                      </div>
+                      <div>
+                        <label className="field-label" htmlFor="buyer-business-name">
+                          {t.buyerBusinessName}
+                        </label>
+                        <input
+                          id="buyer-business-name"
+                          autoComplete="organization"
+                          value={buyerBusinessName}
+                          onChange={(e) => setBuyerBusinessName(e.target.value)}
                           className="field"
                         />
                       </div>

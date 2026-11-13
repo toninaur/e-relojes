@@ -3,7 +3,8 @@ import type { AdminOrder, DetailWidgetProps } from '@medusajs/framework/types'
 import { Badge, Container, Heading, Text } from '@medusajs/ui'
 import { useEffect, useState } from 'react'
 
-// Panel → Pedidos → un pedido: cómo paga y cómo lo recibe el cliente. La
+// Panel → Pedidos → un pedido: cómo paga, cómo lo recibe y los datos para la
+// factura (RUC y razón social, si los cargó). La
 // tienda lo guarda en la metadata del pedido al confirmar la compra
 // (storefront/app/carrito/page.tsx).
 
@@ -43,7 +44,7 @@ const OrderPaymentDelivery = ({ data: order }: DetailWidgetProps<AdminOrder>) =>
   return (
     <Container className="divide-y p-0">
       <div className="px-6 py-4">
-        <Heading level="h2">Pago y entrega</Heading>
+        <Heading level="h2">Pago, entrega y factura</Heading>
       </div>
       <div className="flex flex-col gap-y-1 px-6 py-4">
         <Text size="small" className="text-ui-fg-subtle">
@@ -67,6 +68,19 @@ const OrderPaymentDelivery = ({ data: order }: DetailWidgetProps<AdminOrder>) =>
           Cómo lo recibe
         </Text>
         <Text>{delivery ?? 'No indicado'}</Text>
+      </div>
+      <div className="flex flex-col gap-y-1 px-6 py-4">
+        <Text size="small" className="text-ui-fg-subtle">
+          Factura
+        </Text>
+        {metadata.ruc || metadata.razon_social ? (
+          <>
+            {metadata.ruc && <Text>RUC: {String(metadata.ruc)}</Text>}
+            {metadata.razon_social && <Text>Razón social: {String(metadata.razon_social)}</Text>}
+          </>
+        ) : (
+          <Text className="text-ui-fg-subtle">Sin RUC (factura a nombre del cliente)</Text>
+        )}
       </div>
     </Container>
   )
