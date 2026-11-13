@@ -10,6 +10,7 @@ export const AroniumRun = model.define('aronium_run', {
   prices_updated: model.number().default(0),
   stock_updated: model.number().default(0),
   created: model.number().default(0),
+  removed: model.number().default(0),
   images_added: model.number().default(0),
   error: model.text().nullable(),
   duration_ms: model.number().default(0),

@@ -9,4 +9,9 @@ export const AroniumAgent = model.define('aronium_agent', {
   products_total: model.number().default(0),
   last_error: model.text().nullable(),
   last_error_at: model.dateTime().nullable(),
+  // Cada cuántos minutos pasa el agente (config.json, entre 5 y 30).
+  interval_minutes: model.number().default(5),
+  // Códigos activos en la última pasada buena ({ codes: [...] }): el que deja
+  // de venir es una baja.
+  known_codes: model.json().nullable(),
 })

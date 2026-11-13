@@ -4,14 +4,15 @@ import { Badge, Button, Container, Heading, StatusBadge, Table, Text } from '@me
 import { Fragment, useCallback, useEffect, useState } from 'react'
 
 // Panel → Aronium: estado del conector con la caja del local, productos
-// nuevos para completar y el historial de cambios que aplicó en la tienda.
+// nuevos para completar y la bitácora de eventos (altas, bajas y
+// modificaciones, con su estado).
 
 type Change = {
   id: string
   code: string
   product_id: string | null
   product_title: string | null
-  field: 'price' | 'stock' | 'created' | 'image'
+  field: 'price' | 'stock' | 'created' | 'removed' | 'image'
   old_value: string | null
   new_value: string | null
 }
@@ -23,6 +24,7 @@ type Run = {
   prices_updated: number
   stock_updated: number
   created: number
+  removed: number
   images_added: number
   error: string | null
   changes: Change[]
@@ -35,14 +37,15 @@ type Status = {
     products_total: number
     last_error: string | null
     last_error_at: string | null
+    interval_minutes: number
   } | null
   drafts: { id: string; title: string; code: string; has_image: boolean; created_at: string; missing: string[] }[]
   runs: Run[]
   runs_count: number
 }
 
-// El agente pasa cada 5 minutos: más de 15 sin noticias es que algo pasa.
-const OFFLINE_AFTER_MS = 15 * 60 * 1000
+// Sin noticias del agente por más de dos pasadas (y 5 minutos de margen): algo pasa.
+const offlineAfterMinutes = (interval: number) => interval * 2 + 5
 const PAGE_SIZE = 20
 
 const AroniumPage = () => {
@@ -127,9 +130,11 @@ const AroniumPage = () => {
 
       <Container className="divide-y p-0">
         <div className="px-6 py-4">
-          <Heading level="h2">Historial</Heading>
+          <Heading level="h2">Bitácora de eventos</Heading>
           <Text size="small" className="text-ui-fg-subtle">
-            Cada vez que el conector cambió algo en la tienda. Las pasadas sin cambios no se anotan.
+            Cada sincronización que cambió algo en la tienda, con sus eventos: <b>alta</b> (producto nuevo en
+            Aronium), <b>baja</b> (producto borrado o desactivado en Aronium: queda sin stock) y <b>modificación</b>{' '}
+            (precio, stock o foto). Tocá una fila para ver el detalle. Las sincronizaciones sin cambios no se anotan.
           </Text>
         </div>
         {status.runs.length === 0 ? (
@@ -139,8 +144,8 @@ const AroniumPage = () => {
             <Table.Header>
               <Table.Row>
                 <Table.HeaderCell>Fecha</Table.HeaderCell>
-                <Table.HeaderCell>Resultado</Table.HeaderCell>
-                <Table.HeaderCell>Detalle</Table.HeaderCell>
+                <Table.HeaderCell>Estado</Table.HeaderCell>
+                <Table.HeaderCell>Eventos</Table.HeaderCell>
               </Table.Row>
             </Table.Header>
             <Table.Body>
@@ -149,7 +154,7 @@ const AroniumPage = () => {
                   <Table.Row className="cursor-pointer" onClick={() => setOpen(open === run.id ? null : run.id)}>
                     <Table.Cell>{formatDate(run.created_at)}</Table.Cell>
                     <Table.Cell>
-                      {run.status === 'error' ? <StatusBadge color="red">Error</StatusBadge> : <StatusBadge color="green">Aplicado</StatusBadge>}
+                      {run.status === 'error' ? <StatusBadge color="red">Error: no se aplicó</StatusBadge> : <StatusBadge color="green">Aplicado</StatusBadge>}
                     </Table.Cell>
                     <Table.Cell>{run.status === 'error' ? run.error : summary(run)}</Table.Cell>
                   </Table.Row>
@@ -158,7 +163,8 @@ const AroniumPage = () => {
                       <td colSpan={3} className="bg-ui-bg-subtle px-6">
                         <ul className="flex flex-col gap-y-1 py-2">
                           {sortChanges(run.changes).map((c) => (
-                            <li key={c.id}>
+                            <li key={c.id} className="flex items-center gap-x-2">
+                              <EventBadge field={c.field} />
                               <Text size="small">
                                 <span className="font-medium">{c.product_title ?? c.code}</span>{' '}
                                 <span className="text-ui-fg-subtle">({c.code})</span>: {describe(c)}
@@ -195,16 +201,18 @@ const AroniumPage = () => {
 const AgentCard = ({ status, onRefresh }: { status: Status; onRefresh: () => void }) => {
   const agent = status.agent
   const lastSeen = agent?.last_seen_at ? new Date(agent.last_seen_at) : null
-  const offline = !lastSeen || Date.now() - lastSeen.getTime() > OFFLINE_AFTER_MS
+  const interval = agent?.interval_minutes ?? 5
+  const offlineMinutes = offlineAfterMinutes(interval)
+  const offline = !lastSeen || Date.now() - lastSeen.getTime() > offlineMinutes * 60 * 1000
 
   let badge = <StatusBadge color="green">Conectado</StatusBadge>
-  let message = 'El conector está funcionando: precio y stock de Aronium se copian a la tienda cada 5 minutos.'
+  let message = `El conector está funcionando: precio y stock de Aronium se copian a la tienda cada ${interval} minutos.`
   if (!agent) {
     badge = <StatusBadge color="grey">Sin instalar</StatusBadge>
     message = 'El conector todavía no se comunicó con la tienda. Se instala en la computadora del local donde está Aronium.'
   } else if (offline) {
     badge = <StatusBadge color="red">Sin conexión</StatusBadge>
-    message = 'Hace más de 15 minutos que el conector no se comunica. Revisá que la computadora del local esté encendida y con internet.'
+    message = `Hace más de ${offlineMinutes} minutos que el conector no se comunica. Revisá que la computadora del local esté encendida y con internet.`
   } else if (agent.last_error) {
     badge = <StatusBadge color="orange">Con errores</StatusBadge>
     message = agent.last_error
@@ -225,9 +233,10 @@ const AgentCard = ({ status, onRefresh }: { status: Status; onRefresh: () => voi
         <Text className="text-ui-fg-subtle">{message}</Text>
       </div>
       {agent && (
-        <div className="grid grid-cols-1 gap-4 px-6 py-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 px-6 py-4 sm:grid-cols-4">
           <Fact label="Última conexión" value={lastSeen ? `${formatDate(lastSeen.toISOString())} (${ago(lastSeen)})` : '—'} />
           <Fact label="Productos en Aronium" value={agent.products_total.toLocaleString('es-PY')} />
+          <Fact label="Sincroniza cada" value={`${interval} minutos`} />
           <Fact label="Computadora" value={agent.host ? `${agent.host}${agent.version ? ` · v${agent.version}` : ''}` : '—'} />
         </div>
       )}
@@ -245,16 +254,30 @@ const Fact = ({ label, value }: { label: string; value: string }) => (
 )
 
 function summary(run: Run) {
+  const modified = run.prices_updated + run.stock_updated + run.images_added
   const parts = [
-    run.created && `${run.created} ${run.created === 1 ? 'producto nuevo' : 'productos nuevos'}`,
-    run.prices_updated && `${run.prices_updated} ${run.prices_updated === 1 ? 'precio' : 'precios'}`,
-    run.stock_updated && `${run.stock_updated} stock`,
-    run.images_added && `${run.images_added} ${run.images_added === 1 ? 'foto' : 'fotos'}`,
+    run.created && `${run.created} ${run.created === 1 ? 'alta' : 'altas'}`,
+    run.removed && `${run.removed} ${run.removed === 1 ? 'baja' : 'bajas'}`,
+    modified && `${modified} ${modified === 1 ? 'modificación' : 'modificaciones'}`,
   ].filter(Boolean)
   return parts.join(' · ') || 'Sin cambios'
 }
 
-const FIELD_ORDER = { created: 0, price: 1, stock: 2, image: 3 }
+const EVENT: Record<Change['field'], { label: string; color: 'green' | 'red' | 'blue' }> = {
+  created: { label: 'Alta', color: 'green' },
+  removed: { label: 'Baja', color: 'red' },
+  price: { label: 'Modificación', color: 'blue' },
+  stock: { label: 'Modificación', color: 'blue' },
+  image: { label: 'Modificación', color: 'blue' },
+}
+
+const EventBadge = ({ field }: { field: Change['field'] }) => (
+  <Badge color={EVENT[field].color} size="2xsmall" className="shrink-0">
+    {EVENT[field].label}
+  </Badge>
+)
+
+const FIELD_ORDER = { created: 0, removed: 1, price: 2, stock: 3, image: 4 }
 function sortChanges(changes: Change[]) {
   return [...changes].sort((a, b) => FIELD_ORDER[a.field] - FIELD_ORDER[b.field] || a.code.localeCompare(b.code))
 }
@@ -263,6 +286,10 @@ function describe(c: Change) {
   switch (c.field) {
     case 'created':
       return `producto nuevo en borrador (stock ${c.new_value})`
+    case 'removed':
+      return c.old_value === null || c.old_value === '0'
+        ? 'borrado o desactivado en Aronium (ya estaba sin stock)'
+        : `borrado o desactivado en Aronium: stock ${c.old_value} → 0`
     case 'price':
       return c.old_value === null ? `precio ${gs(c.new_value)}` : `precio ${gs(c.old_value)} → ${gs(c.new_value)}`
     case 'stock':

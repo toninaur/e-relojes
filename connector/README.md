@@ -4,9 +4,9 @@ El conector tiene tres partes:
 
 | Parte | Dónde corre | Qué hace |
 |---|---|---|
-| Agente (esta carpeta) | Computadora del local, junto a Aronium | Cada 5 minutos lee la base de Aronium (solo lectura) y manda el catálogo entero a la tienda. Si no puede leerla, avisa el error. |
+| Agente (esta carpeta) | Computadora del local, junto a Aronium | Cada 5 a 30 minutos (`intervalMinutes`) lee la base de Aronium (solo lectura) y manda el catálogo entero a la tienda. Si no puede leerla, avisa el error. |
 | Servidor (`backend/src/lib/aronium-sync.ts`, módulo `backend/src/modules/aronium`) | Backend de la tienda | Compara con la tienda, aplica los cambios, crea los productos nuevos, pide las fotos que faltan y guarda el historial. |
-| Panel (`backend/src/admin/routes/aronium`) | Panel de la tienda → **Aronium** | Estado del agente (conectado, sin conexión, con errores), productos nuevos para completar e historial de cambios (precio anterior → nuevo). |
+| Panel (`backend/src/admin/routes/aronium`) | Panel de la tienda → **Aronium** | Estado del agente (conectado, sin conexión, con errores), productos nuevos para completar y bitácora de eventos: altas, bajas y modificaciones (precio anterior → nuevo), con su estado (aplicado o error). |
 
 Rutas, con clave secreta de API: `POST /admin/aronium/sync` (catálogo o error),
 `POST /admin/aronium/images` (fotos que pidió la tienda) y
@@ -17,7 +17,7 @@ Rutas, con clave secreta de API: `POST /admin/aronium/sync` (catálogo o error),
 | Código del producto | SKU de la variante (es lo que los une) |
 | Precio | Precio normal. Las ofertas (lista "Ofertas") no se tocan |
 | Stock (suma de los depósitos, o el de `warehouseId`) | Stock del local. Lo vendido online y no entregado queda reservado y se descuenta |
-| Producto desactivado | Stock 0 (no se vende online) |
+| Producto desactivado o borrado | **Baja**: stock 0 (no se vende online). El producto queda en la tienda, oculto si lo ocultan en el panel |
 | Código que no existe en la tienda | Producto nuevo **en borrador**, con nombre, descripción, categoría, marca y tipo cuando se pueden deducir (ver abajo). La foto de Aronium, si tiene, llega en un segundo paso |
 
 Al crear un borrador, `backend/src/lib/aronium-classify.ts` completa:
@@ -56,6 +56,9 @@ variante lleva como SKU el código de Aronium de ese modelo.
      `%LOCALAPPDATA%\Aronium\Data\pos.db`; si no está ahí, Aronium la muestra en
      Configuración → Base de datos → "Abrir ubicación".
    - `warehouseId`: `null` suma todos los depósitos; un número usa solo ese.
+   - `intervalMinutes`: cada cuántos minutos sincroniza, de 5 a 30 (fuera de
+     ese rango se usa el límite más cercano). Después de cambiarlo, reiniciar la
+     tarea programada o la computadora.
 5. En PowerShell, dentro de la carpeta:
    `powershell -ExecutionPolicy Bypass -File install.ps1`
    Hace una pasada de prueba y deja una tarea programada que arranca sola al

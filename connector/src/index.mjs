@@ -15,14 +15,17 @@ import { readProducts } from './aronium.mjs'
 //   node src/index.mjs          corre en bucle (lo que usa la tarea programada)
 //   node src/index.mjs --once   una sola pasada y termina
 
-const VERSION = '0.2.0'
+const VERSION = '0.3.0'
+// Cada cuánto pasa el agente, en minutos (config.json → intervalMinutes).
+const MIN_INTERVAL = 5
+const MAX_INTERVAL = 30
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const CONFIG_PATH = path.join(ROOT, 'config.json')
 const LOG_PATH = path.join(ROOT, 'connector.log')
 const IMAGE_BATCH_SIZE = 10
 
 const config = loadConfig()
-const agent = { version: VERSION, host: os.hostname() }
+const agent = { version: VERSION, host: os.hostname(), interval_minutes: config.intervalMinutes }
 
 if (process.argv.includes('--once')) {
   process.exitCode = (await runOnce()) ? 0 : 1
@@ -52,7 +55,8 @@ async function runOnce() {
       items: products.map(({ image, ...item }) => item),
     })
     const summary = [
-      result.created && `${result.created} nuevos`,
+      result.created && `${result.created} altas`,
+      result.removed && `${result.removed} bajas`,
       result.prices_updated && `${result.prices_updated} precios`,
       result.stock_updated && `${result.stock_updated} stocks`,
     ].filter(Boolean)
@@ -116,7 +120,7 @@ function loadConfig() {
       ? String(raw.aroniumDb).replace(/%LOCALAPPDATA%/gi, process.env.LOCALAPPDATA ?? '')
       : path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Aronium', 'Data', 'pos.db'),
     warehouseId: raw.warehouseId ? Number(raw.warehouseId) : null,
-    intervalMinutes: Math.max(1, Number(raw.intervalMinutes) || 5),
+    intervalMinutes: Math.min(MAX_INTERVAL, Math.max(MIN_INTERVAL, Math.round(Number(raw.intervalMinutes) || MIN_INTERVAL))),
   }
   if (!cfg.storeUrl || !cfg.apiKey) {
     console.error('config.json: faltan storeUrl o apiKey.')

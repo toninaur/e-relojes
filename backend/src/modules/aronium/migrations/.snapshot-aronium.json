@@ -118,6 +118,38 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "interval_minutes": {
+          "name": "interval_minutes",
+          "type": "integer",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "5",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
+        "known_codes": {
+          "name": "known_codes",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -281,6 +313,22 @@
         },
         "created": {
           "name": "created",
+          "type": "integer",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "0",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
+        "removed": {
+          "name": "removed",
           "type": "integer",
           "unsigned": false,
           "autoincrement": false,
@@ -502,6 +550,7 @@
             "price",
             "stock",
             "created",
+            "removed",
             "image"
           ],
           "mappedType": "enum"

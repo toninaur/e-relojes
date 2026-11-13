@@ -29,8 +29,13 @@ import type AroniumModuleService from '../modules/aronium/service'
 // entregar queda como reserva, así que lo disponible en la tienda es el stock
 // de Aronium menos esas reservas.
 //
-// Cada pasada que cambia algo (o que falla) queda en el historial que muestra
-// el panel (admin → Aronium).
+// Bitácora (panel → Aronium): cada pasada que cambia algo, o que falla, con
+// sus eventos: alta (producto nuevo), baja (código borrado o desactivado en
+// Aronium: queda con stock 0) y modificación (precio, stock o foto).
+//
+// Para saber qué se dio de baja se guardan los códigos activos de la última
+// pasada buena (`known_codes` del agente): el que deja de venir, o viene
+// desactivado, es una baja. La primera pasada no tiene con qué comparar.
 
 const CURRENCY = 'pyg'
 const NO_COLOR_TYPES = new Set(['Perfume', 'Decant'])
@@ -48,9 +53,14 @@ export const aroniumItemSchema = z.object({
   image_hash: z.string().nullish(),
 })
 
+export const MIN_INTERVAL = 5
+export const MAX_INTERVAL = 30
+
 const agentSchema = z.object({
   version: z.string().nullish(),
   host: z.string().nullish(),
+  // Agentes viejos no lo mandan: 5. Fuera de rango, el límite más cercano.
+  interval_minutes: z.number().nullish(),
 })
 
 export const aroniumSyncSchema = z.object({
@@ -78,7 +88,7 @@ type ChangeInput = {
   code: string
   product_id?: string | null
   product_title?: string | null
-  field: 'price' | 'stock' | 'created' | 'image'
+  field: 'price' | 'stock' | 'created' | 'removed' | 'image'
   old_value?: string | null
   new_value?: string | null
 }
@@ -105,12 +115,19 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
     if (last?.status !== 'error' || last.error !== input.error) {
       await aronium.createAroniumRuns({ status: 'error', error: input.error, duration_ms: Date.now() - started })
     }
-    return { prices_updated: 0, stock_updated: 0, created: 0, unchanged: 0, images_wanted: [] as string[] }
+    return { prices_updated: 0, stock_updated: 0, created: 0, removed: 0, unchanged: 0, images_wanted: [] as string[] }
   }
 
   try {
-    const outcome = await applySnapshot(container, input.items)
-    await touchAgent(aronium, input.agent, { productsTotal: input.items.length })
+    const [current] = await aronium.listAroniumAgents({}, { take: 1 })
+    const saved = (current?.known_codes as { codes?: unknown } | null | undefined)?.codes
+    const known = Array.isArray(saved) ? new Set(saved.map(String)) : null
+    const outcome = await applySnapshot(container, input.items, known)
+    await touchAgent(aronium, input.agent, {
+      productsTotal: input.items.length,
+      // Catálogo vacío: probablemente una lectura mala; no se olvida lo conocido.
+      ...(input.items.length ? { knownCodes: [...new Set(input.items.filter((i) => i.enabled).map((i) => i.code))] } : {}),
+    })
     if (outcome.changes.length) {
       await recordRun(aronium, outcome.changes, {
         items_received: input.items.length,
@@ -122,6 +139,7 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
       prices_updated: count('price'),
       stock_updated: count('stock'),
       created: count('created'),
+      removed: count('removed'),
       unchanged: outcome.unchanged,
       images_wanted: outcome.imagesWanted,
     }
@@ -138,7 +156,7 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
   }
 }
 
-async function applySnapshot(container: MedusaContainer, input: AroniumItem[]) {
+async function applySnapshot(container: MedusaContainer, input: AroniumItem[], known: Set<string> | null) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const changes: ChangeInput[] = []
   let unchanged = 0
@@ -164,6 +182,8 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[]) {
     if (!variant) continue
     const product = { product_id: variant.product?.id, product_title: variant.product?.title }
     const stock = item.enabled ? Math.max(0, Math.floor(item.stock)) : 0
+    // Venía activo y ahora está desactivado en Aronium: baja.
+    const removed = !item.enabled && Boolean(known?.has(item.code))
     let changed = false
 
     const base = variant.price_set?.prices?.find((p) => !p.price_list_id && p.currency_code === CURRENCY)
@@ -181,7 +201,15 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[]) {
       if (current !== stock) {
         if (level) levelUpdates.push({ id: level.id, inventory_item_id: inventoryItem.inventory_item_id, location_id: locationId, stocked_quantity: stock })
         else levelCreates.push({ inventory_item_id: inventoryItem.inventory_item_id, location_id: locationId, stocked_quantity: stock })
-        changes.push({ code: item.code, ...product, field: 'stock', old_value: current === null ? null : String(current), new_value: String(stock) })
+      }
+      if (removed || current !== stock) {
+        changes.push({
+          code: item.code,
+          ...product,
+          field: removed ? 'removed' : 'stock',
+          old_value: current === null ? null : String(current),
+          new_value: String(stock),
+        })
         changed = true
       }
     }
@@ -192,6 +220,26 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[]) {
     }
 
     if (!changed) unchanged++
+  }
+
+  // Códigos que venían activos y ya no están en Aronium (borrados): baja.
+  const present = new Set(items.map((i) => i.code))
+  const gone = known ? [...known].filter((code) => !present.has(code)) : []
+  for (const variant of gone.length ? await findVariants(container, gone) : []) {
+    const inventoryItem = variant.inventory_items?.[0]
+    const level = inventoryItem?.inventory?.location_levels?.find((l) => l.location_id === locationId)
+    const current = level ? Number(level.stocked_quantity) : null
+    if (level && current !== 0) {
+      levelUpdates.push({ id: level.id, inventory_item_id: inventoryItem!.inventory_item_id, location_id: locationId, stocked_quantity: 0 })
+    }
+    changes.push({
+      code: variant.sku!,
+      product_id: variant.product?.id,
+      product_title: variant.product?.title,
+      field: 'removed',
+      old_value: current === null ? null : String(current),
+      new_value: '0',
+    })
   }
 
   if (priceUpdates.length) {
@@ -279,7 +327,7 @@ export async function getAroniumStatus(container: MedusaContainer, { limit = 20,
   })
 
   return {
-    agent: agent ?? null,
+    agent: agent ? { ...agent, known_codes: undefined } : null,
     drafts: drafts
       .filter((p) => p.metadata?.aronium_code)
       .map((p) => ({
@@ -306,14 +354,16 @@ export async function getAroniumStatus(container: MedusaContainer, { limit = 20,
 async function touchAgent(
   aronium: AroniumModuleService,
   agent: z.infer<typeof agentSchema>,
-  { error, productsTotal }: { error?: string; productsTotal?: number }
+  { error, productsTotal, knownCodes }: { error?: string; productsTotal?: number; knownCodes?: string[] }
 ) {
   const now = new Date()
   const data = {
     last_seen_at: now,
     version: agent.version ?? null,
     host: agent.host ?? null,
+    interval_minutes: Math.min(MAX_INTERVAL, Math.max(MIN_INTERVAL, Math.round(agent.interval_minutes ?? MIN_INTERVAL))),
     ...(productsTotal !== undefined ? { products_total: productsTotal } : {}),
+    ...(knownCodes ? { known_codes: { codes: knownCodes } } : {}),
     ...(error ? { last_error: error, last_error_at: now } : { last_error: null }),
   }
   const [existing] = await aronium.listAroniumAgents({}, { take: 1 })
@@ -333,6 +383,7 @@ async function recordRun(
     prices_updated: count('price'),
     stock_updated: count('stock'),
     created: count('created'),
+    removed: count('removed'),
     images_added: count('image'),
   })
   await aronium.createAroniumChanges(changes.map((c) => ({ ...c, run_id: run.id })))
