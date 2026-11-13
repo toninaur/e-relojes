@@ -1,6 +1,7 @@
 import type { HttpTypes } from '@medusajs/types'
 import { sdk } from './client'
-import { FEATURED_TAG, listProducts } from './products'
+import { getContent } from './content'
+import { FEATURED_TAG, listProducts, listProductsByIds } from './products'
 
 // Categorías, marcas (colecciones) y tags: cambian poco, se cachean más.
 const REVALIDATE_SECONDS = 300
@@ -59,16 +60,23 @@ async function getTagId(value: string): Promise<string | null> {
   }
 }
 
-export async function listFeaturedProducts(limit = 24) {
+export const MAX_FEATURED = 8
+
+/** Destacados de la portada: los elegidos en el panel → Portada (hasta 8). Si
+ *  esa lista nunca se guardó, los productos con el tag "destacado". */
+export async function listFeaturedProducts(limit = MAX_FEATURED) {
+  const content = await getContent('portada-destacados')
+  if (content?.configured) return listProductsByIds(content.data.product_ids.slice(0, limit))
   const tagId = await getTagId(FEATURED_TAG)
   if (!tagId) return []
   const { products } = await listProducts({ tagId, limit })
   return products
 }
 
-export async function listProductsInCategory(name: string, limit = 12) {
-  const category = (await listCategories()).find((c) => c.name === name)
-  if (!category) return []
-  const { products } = await listProducts({ categoryId: category.id, limit, order: 'title' })
-  return products
+/** Combos de la sección "Perfumes y decants": los elegidos en el panel →
+ *  Portada. Si la sección nunca se guardó, los productos que se llaman "Combo…". */
+export async function listCombos(configured: boolean, ids: string[]) {
+  if (configured) return listProductsByIds(ids)
+  const { products } = await listProducts({ q: 'combo', limit: 12, order: 'title' })
+  return products.filter((p) => /\bcombo\b/i.test(p.title))
 }

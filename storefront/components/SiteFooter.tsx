@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { brand, whatsappUrl } from '@/lib/brand'
+import { LEGAL_PAGES } from '@/components/legal/LegalPage'
 
 export default function SiteFooter() {
   return (
@@ -23,10 +24,19 @@ export default function SiteFooter() {
             WhatsApp
           </a>
         </nav>
-        <small className="block w-full text-[0.85rem] text-white/55 border-t border-[#262626] pt-6">
-          © {new Date().getFullYear()} {brand.legalName}. Los precios están sujetos a variaciones y el stock de cada
-          modelo es limitado.
-        </small>
+        <div className="w-full border-t border-[#262626] pt-6 flex flex-wrap justify-between gap-x-8 gap-y-3">
+          <small className="text-[0.85rem] text-white/55">
+            © {new Date().getFullYear()} {brand.legalName}. Los precios están sujetos a variaciones y el stock de cada
+            modelo es limitado.
+          </small>
+          <nav aria-label="Legales" className="flex flex-wrap gap-x-5 gap-y-2 text-[0.85rem]">
+            {LEGAL_PAGES.map((p) => (
+              <Link key={p.path} href={p.path} className="text-white/70 no-underline hover:underline hover:text-white">
+                {p.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
       </div>
     </footer>
   )

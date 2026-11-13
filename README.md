@@ -47,7 +47,8 @@ npm run dev
 | `/` | Inicio: banner rotativo, nuevos ingresos (los 4 últimos publicados), destacados, categorías, perfumes, cómo comprar, reseñas, local. En el encabezado se resalta la sección que se está viendo |
 | `/catalogo` | Catálogo con búsqueda y filtros: tipo, categoría, marca, color, malla, precio y ofertas (ver abajo). Cada tarjeta muestra el stock y un botón de WhatsApp |
 | `/producto/<handle>` | Ficha de producto: stock, WhatsApp y productos relacionados (misma marca, después misma categoría) |
-| `/carrito` | Carrito y checkout. Crea el pedido en Medusa (admin → Pedidos) |
+| `/carrito` | Carrito y checkout. Crea el pedido en Medusa (admin → Pedidos). Las formas de entrega son las opciones de envío del panel (Configuración → Ubicaciones y envíos): se listan todas; las de tipo `pickup` o con "retiro" en el nombre no piden dirección. En el pedido, el recuadro **Pago y entrega** muestra cómo paga (transferencia o efectivo) y cómo lo recibe |
+| `/terminos`, `/cambios-y-devoluciones`, `/privacidad` | Páginas legales, con links al pie. Título y texto en el panel → **Páginas** (vacías hasta que el cliente cargue el texto; vacías no van a Google) |
 
 ## Banner de la portada
 
@@ -57,6 +58,26 @@ círculo" es para fotos con fondo de color o flyers; apagado, el producto va
 sobre fondo blanco con margen. Sin diapositivas visibles, la portada usa el
 texto fijo de `storefront/content/landing.ts`. El seed del catálogo de demo
 crea tres diapositivas si no hay ninguna.
+
+## Portada y páginas editables
+
+En el panel → **Portada**: los productos destacados (hasta 8, en orden) y la
+sección "Perfumes y decants" (títulos, textos, 2 fotos y los combos que se
+presentan). En el panel → **Páginas**: términos y condiciones, cambios y
+devoluciones, y privacidad. Se guardan en el módulo `site-content`
+(`backend/src/lib/site-content.ts`) y la tienda los lee en
+`/store/content/:key` (se actualiza en un minuto). Mientras no se guarden: los
+destacados son los productos con el tag `destacado` y los combos, los productos
+que se llaman "Combo…".
+
+## Panel en español
+
+El panel abre en español (cada usuario lo puede cambiar en su perfil) y usa las
+palabras del local: Marcas (colecciones), Ofertas (listas de precios), Marcar
+como pagado (capturar pago), Envío (fulfillment), Oculto (borrador). Los textos
+salen de `backend/src/admin/i18n/es.json`, que genera
+`node scripts/admin-es.mjs` (desde `backend/`) sobre la traducción oficial de
+Medusa; volver a correrlo al actualizar Medusa.
 
 ## Datos iniciales
 
@@ -80,7 +101,7 @@ crea tres diapositivas si no hay ninguna.
 | Categoría | Categorías: Caballeros, Damas, Casio, Perfumes y decants, Lentes de sol, Joyas y pulseras, Bolsos y billeteras, Organizadores y accesorios |
 | Referencia | SKU de la variante (o metadata `ref`) |
 | Características (chips) | Recuadro **Filtros de la tienda** del producto, una por línea (metadata `specs`, separadas por ` \| `) |
-| Destacado en el inicio | Tag `destacado` |
+| Destacado en el inicio | Panel → **Portada** (hasta 8) |
 | Precio de oferta (con el normal tachado) | Lista de precios "Ofertas" |
 | Fotos | Imágenes del producto |
 | Tipo (filtro) | Tipo de producto: Reloj, Perfume, Decant, Lentes de sol, Joya, Pulsera, Billetera, Cinto, Mochila o bolso, Cartera, Necessaire, Organizador, Botella o vaso, Herramienta, Accesorio |

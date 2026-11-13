@@ -10,7 +10,7 @@ import { getRegion } from './region'
 // - Categoría        → categorías del producto.
 // - Referencia       → SKU de la variante.
 // - Características  → metadata `specs`, separadas por " | ".
-// - Destacado        → tag `destacado`.
+// - Destacado        → panel → Portada (o tag `destacado` si nunca se guardó).
 // - Oferta           → lista de precios de tipo "sale" (se muestra el precio normal tachado).
 // - Variantes: opción "Color" → selector de color (hex opcional en la
 //   metadata de la variante, `color_hex`); cualquier otra opción con más de

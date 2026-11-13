@@ -2,7 +2,8 @@ import Link from 'next/link'
 import { landing } from '@/content/landing'
 import { brand, whatsappUrl } from '@/lib/brand'
 import { formatMoney } from '@/lib/format'
-import { listBrands, listCategories, listFeaturedProducts, listProductsInCategory } from '@/lib/medusa/catalog'
+import { listBrands, listCategories, listCombos, listFeaturedProducts } from '@/lib/medusa/catalog'
+import { getContent } from '@/lib/medusa/content'
 import { listProducts } from '@/lib/medusa/products'
 import { ProductGrid } from '@/components/ProductCard'
 import { listBanners } from '@/lib/medusa/banners'
@@ -23,15 +24,20 @@ function SectionHead({ title, text, dark = false }: { title: string; text?: stri
 const NEW_ARRIVALS = 4
 
 export default async function HomePage() {
-  const [banners, newArrivals, featured, categories, brands, combos] = await Promise.all([
+  const [banners, newArrivals, featured, categories, brands, perfumesContent] = await Promise.all([
     listBanners(),
     // Los últimos publicados (la tienda solo devuelve productos publicados).
     listProducts({ order: '-created_at', limit: NEW_ARRIVALS }).then((r) => r.products),
     listFeaturedProducts(),
     listCategories(),
     listBrands(),
-    listProductsInCategory(landing.perfumes.category),
+    getContent('portada-perfumes'),
   ])
+  // Sección "Perfumes y decants": textos, fotos y combos del panel → Portada.
+  const perfumes = perfumesContent?.data ?? null
+  const combos = perfumesContent
+    ? await listCombos(perfumesContent.configured, perfumesContent.data.combo_product_ids)
+    : []
   const brandHandle = new Map(brands.map((b) => [b.title, b.handle]))
   // Sin diapositivas cargadas en el panel, la portada fija de content/landing.ts.
   const slides: HeroSlide[] = banners.length
@@ -145,53 +151,57 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* Perfumes */}
-      <section id="perfumes" className="section-y">
-        <div className="wrap grid gap-[clamp(2rem,5vw,4rem)] items-start min-[860px]:grid-cols-[1fr_1.25fr]">
-          <div>
-            <h2 className="h2-display">{landing.perfumes.title}</h2>
-            <p className="text-muted text-[1.08rem] max-w-[58ch] mt-3.5">{landing.perfumes.text}</p>
-            <div className="bg-white border border-line rounded-[var(--radius-card)] px-5 py-5 my-6">
-              <strong className="block mb-1">{landing.perfumes.decantTitle}</strong>
-              <p className="m-0 text-muted">{landing.perfumes.decantText}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {landing.perfumes.photos.map((photo) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={photo.src} src={photo.src} alt={photo.alt} loading="lazy" className="rounded-[var(--radius-card)] aspect-square object-cover w-full" />
-              ))}
-            </div>
-          </div>
-          {combos.length > 0 && (
+      {/* Perfumes y decants (panel → Portada) */}
+      {perfumes && (
+        <section id="perfumes" className="section-y">
+          <div className="wrap grid gap-[clamp(2rem,5vw,4rem)] items-start min-[860px]:grid-cols-[1fr_1.25fr]">
             <div>
-              <h3 className="text-[1.35rem] mb-4">{landing.perfumes.combosTitle}</h3>
-              <div className="grid gap-3">
-                {combos.map((combo) => (
-                  <div
-                    key={combo.id}
-                    className="flex justify-between items-center gap-4 bg-white border border-line rounded-[var(--radius-card)] px-[1.15rem] py-4"
-                  >
-                    <div>
-                      <h4 className="font-sans text-[1.02rem] font-bold mb-0.5">{combo.title}</h4>
-                      {combo.description && <p className="m-0 text-muted text-[0.9rem]">{combo.description}</p>}
-                    </div>
-                    <div className="text-right flex-none">
-                      {combo.originalPrice && (
-                        <s className="block text-muted text-[0.85rem]">{formatMoney(combo.originalPrice, combo.currency)}</s>
-                      )}
-                      <strong className="text-[1.1rem]">{formatMoney(combo.price, combo.currency)}</strong>
-                      <br />
-                      <Link href={`/producto/${combo.slug}`} className="text-[0.88rem] font-semibold text-accent no-underline hover:underline">
-                        Ver combo
-                      </Link>
-                    </div>
-                  </div>
+              <h2 className="h2-display">{perfumes.title}</h2>
+              {perfumes.text && <p className="text-muted text-[1.08rem] max-w-[58ch] mt-3.5 whitespace-pre-line">{perfumes.text}</p>}
+              {perfumes.decant_title && (
+                <div className="bg-white border border-line rounded-[var(--radius-card)] px-5 py-5 mt-6">
+                  <strong className="block mb-1">{perfumes.decant_title}</strong>
+                  {perfumes.decant_text && <p className="m-0 text-muted whitespace-pre-line">{perfumes.decant_text}</p>}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4 mt-6">
+                {perfumes.photos.map((photo) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={photo.url} src={photo.url} alt={photo.alt} loading="lazy" className="rounded-[var(--radius-card)] aspect-square object-cover w-full" />
                 ))}
               </div>
             </div>
-          )}
-        </div>
-      </section>
+            {combos.length > 0 && (
+              <div>
+                {perfumes.combos_title && <h3 className="text-[1.35rem] mb-4">{perfumes.combos_title}</h3>}
+                <div className="grid gap-3">
+                  {combos.map((combo) => (
+                    <div
+                      key={combo.id}
+                      className="flex justify-between items-center gap-4 bg-white border border-line rounded-[var(--radius-card)] px-[1.15rem] py-4"
+                    >
+                      <div>
+                        <h4 className="font-sans text-[1.02rem] font-bold mb-0.5">{combo.title}</h4>
+                        {combo.description && <p className="m-0 text-muted text-[0.9rem]">{combo.description}</p>}
+                      </div>
+                      <div className="text-right flex-none">
+                        {combo.originalPrice && (
+                          <s className="block text-muted text-[0.85rem]">{formatMoney(combo.originalPrice, combo.currency)}</s>
+                        )}
+                        <strong className="text-[1.1rem]">{formatMoney(combo.price, combo.currency)}</strong>
+                        <br />
+                        <Link href={`/producto/${combo.slug}`} className="text-[0.88rem] font-semibold text-accent no-underline hover:underline">
+                          Ver combo
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Más que relojes */}
       <section className="section-y bg-white border-y border-line">

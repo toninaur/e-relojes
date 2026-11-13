@@ -1,5 +1,7 @@
 // Textos e imágenes fijas de la página de inicio. Los productos (destacados,
 // combos de perfumes, categorías) salen de Medusa; esto es solo lo editorial.
+// Banner, destacados y la sección "Perfumes y decants" se editan en el panel
+// (Banner y Portada).
 export const landing = {
   hero: {
     title: 'Relojes de las marcas que conocés, con envíos a todo el país',
@@ -55,19 +57,6 @@ export const landing = {
       'Bolsos y billeteras': 'Mochilas, carteras, billeteras, cintos y necessaires.',
       'Organizadores y accesorios': 'Organizadores de relojes y anteojos, botellas Spartan y herramientas.',
     } as Record<string, string>,
-  },
-  perfumes: {
-    title: 'Perfumes y decants',
-    text: 'Perfumes árabes como Afnan, Armaf y Al Haramain, y de diseñador como Paco Rabanne, Jean Paul Gaultier, Armani y Valentino.',
-    decantTitle: '¿Qué es un decant?',
-    decantText:
-      'Es una porción del perfume original en un frasco chico de 3, 5 o 10 ml. Ideal para probar una fragancia antes de comprar el frasco completo, o para llevar en la cartera o el bolso.',
-    photos: [
-      { src: '/images/perfume-9pm.jpg', alt: 'Perfume Afnan 9PM con su decant de 10 ml' },
-      { src: '/images/perfume-million.jpg', alt: 'Perfume Paco Rabanne 1 Million Elixir' },
-    ],
-    combosTitle: 'Combos de 5 decants de 10 ml',
-    category: 'Perfumes y decants',
   },
   more: {
     title: 'Más que relojes',

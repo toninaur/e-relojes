@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { HttpTypes } from '@medusajs/types'
 import { Minus, Plus, X } from 'lucide-react'
@@ -12,13 +12,17 @@ import { formatMoney } from '@/lib/format'
 import { WhatsAppIcon } from '@/components/icons'
 
 // Carrito y checkout en una página. El pedido se crea en Medusa: datos de
-// contacto y dirección en el carrito, método de envío (tipo "shipping" o
-// "pickup", del seed inicial), pago manual y `complete`. Transferencia o
-// efectivo quedan en la metadata del pedido (`payment_method`).
+// contacto y dirección en el carrito, forma de entrega, pago manual y
+// `complete`. Transferencia o efectivo quedan en la metadata del pedido
+// (`payment_method`), que el panel muestra en el pedido.
+//
+// Formas de entrega: todas las opciones de envío cargadas en el panel
+// (Configuración → Ubicaciones y envíos), por ejemplo "Envío a domicilio",
+// "Encomienda al interior" o "Retiro en el local". Las de retiro (tipo
+// "pickup" o con "retiro" en el nombre) no piden dirección.
 //
 // Pasarela de pago online: pendiente, la elige el cliente.
 
-type DeliveryMethod = 'shipping' | 'pickup'
 type PaymentMethod = 'bank_transfer' | 'cash_on_delivery'
 
 const MANUAL_PAYMENT_PROVIDER = 'pp_system_default'
@@ -31,6 +35,12 @@ interface PlacedOrder {
   total: number
   currency: string
   paymentMethod: PaymentMethod
+}
+
+type ShippingOption = HttpTypes.StoreCartShippingOption
+
+function isPickup(option: ShippingOption | null): boolean {
+  return !!option && (option.type?.code === 'pickup' || /retiro/i.test(option.name))
 }
 
 function optionCardCls(active: boolean) {
@@ -46,8 +56,8 @@ export default function CheckoutPage() {
   const [buyerPhone, setBuyerPhone] = useState('')
   const [buyerEmail, setBuyerEmail] = useState('')
 
-  const [shippingOptions, setShippingOptions] = useState<HttpTypes.StoreCartShippingOption[]>([])
-  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('shipping')
+  const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([])
+  const [optionId, setOptionId] = useState<string | null>(null)
   const [addressLine, setAddressLine] = useState('')
   const [addressUnit, setAddressUnit] = useState('')
   const [postalCode, setPostalCode] = useState('')
@@ -67,22 +77,23 @@ export default function CheckoutPage() {
   const cartId = cart?.id
   const hasItems = items.length > 0
 
-  // Opciones de envío del carrito (Envío a domicilio / Retiro en el local).
+  // Formas de entrega del carrito: primero las que llevan a domicilio, el
+  // retiro al final. Se elige de entrada la primera.
   useEffect(() => {
     if (!cartId || !hasItems) return
     sdk.store.fulfillment
       .listCartOptions({ cart_id: cartId })
-      .then(({ shipping_options }) => setShippingOptions(shipping_options))
+      .then(({ shipping_options }) => {
+        const sorted = [...shipping_options].sort((a, b) => Number(isPickup(a)) - Number(isPickup(b)))
+        setShippingOptions(sorted)
+        setOptionId((current) => (current && sorted.some((o) => o.id === current) ? current : (sorted[0]?.id ?? null)))
+      })
       .catch((err) => console.error('[checkout] opciones de envío', err))
   }, [cartId, hasItems])
 
-  const optionFor = useCallback(
-    (method: DeliveryMethod) => shippingOptions.find((o) => o.type?.code === method) ?? null,
-    [shippingOptions],
-  )
-
-  // El método de envío elegido se carga en el carrito para que el total lo incluya.
-  const selectedOption = optionFor(deliveryMethod)
+  // La forma de entrega elegida se carga en el carrito para que el total la incluya.
+  const selectedOption = shippingOptions.find((o) => o.id === optionId) ?? null
+  const pickup = isPickup(selectedOption)
   const currentMethodId = cart?.shipping_methods?.[0]?.shipping_option_id
   useEffect(() => {
     if (!cartId || !selectedOption || currentMethodId === selectedOption.id) return
@@ -155,7 +166,7 @@ export default function CheckoutPage() {
       setError(t.contactRequired)
       return
     }
-    if (deliveryMethod === 'shipping' && (!addressLine.trim() || !city.trim())) {
+    if (!pickup && (!addressLine.trim() || !city.trim())) {
       setError(t.addressRequired)
       return
     }
@@ -171,7 +182,7 @@ export default function CheckoutPage() {
         first_name: buyerName.trim(),
         phone: buyerPhone.trim(),
         country_code: COUNTRY_CODE,
-        ...(deliveryMethod === 'shipping'
+        ...(!pickup
           ? {
               address_1: addressLine.trim(),
               address_2: addressUnit.trim() || undefined,
@@ -184,7 +195,7 @@ export default function CheckoutPage() {
         email: buyerEmail.trim() || undefined,
         shipping_address: address,
         billing_address: address,
-        metadata: { payment_method: paymentMethod, delivery_method: deliveryMethod },
+        metadata: { payment_method: paymentMethod, delivery_method: pickup ? 'pickup' : 'shipping', delivery_option: selectedOption.name },
       })
       if (updated.shipping_methods?.[0]?.shipping_option_id !== selectedOption.id) {
         await sdk.store.cart.addShippingMethod(cart.id, { option_id: selectedOption.id })
@@ -292,31 +303,24 @@ export default function CheckoutPage() {
                 <div>
                   <h2 className={sectionTitleCls}>{t.deliveryMethodTitle}</h2>
                   <div className="grid sm:grid-cols-2 gap-3 mb-5">
-                    {(['shipping', 'pickup'] as const).map((method) => {
-                      const option = optionFor(method)
-                      return (
-                        <label key={method} className={optionCardCls(deliveryMethod === method)}>
-                          <input
-                            type="radio"
-                            name="delivery"
-                            checked={deliveryMethod === method}
-                            onChange={() => setDeliveryMethod(method)}
-                            className="accent-ink"
-                          />
-                          <span className="flex-1 text-[0.95rem] font-semibold">
-                            {method === 'shipping' ? t.shippingOption : t.pickupOption}
-                          </span>
-                          {option && (
-                            <span className="text-[0.9rem] text-muted">
-                              {option.amount > 0 ? formatMoney(option.amount, currency) : t.freeShipping}
-                            </span>
-                          )}
-                        </label>
-                      )
-                    })}
+                    {shippingOptions.map((option) => (
+                      <label key={option.id} className={optionCardCls(optionId === option.id)}>
+                        <input
+                          type="radio"
+                          name="delivery"
+                          checked={optionId === option.id}
+                          onChange={() => setOptionId(option.id)}
+                          className="accent-ink"
+                        />
+                        <span className="flex-1 text-[0.95rem] font-semibold">{option.name}</span>
+                        <span className="text-[0.9rem] text-muted">
+                          {option.amount > 0 ? formatMoney(option.amount, currency) : t.freeShipping}
+                        </span>
+                      </label>
+                    ))}
                   </div>
 
-                  {deliveryMethod === 'shipping' ? (
+                  {!pickup ? (
                     <div className="space-y-4">
                       <div>
                         <label className="field-label" htmlFor="address-line">
