@@ -1,0 +1,253 @@
+{
+  "app": {
+    "search": {
+      "groups": {
+        "product_collection": "Marcas",
+        "collection": "Marcas",
+        "promotion": "Cupones y promociones",
+        "price_list": "Ofertas",
+        "priceList": "Ofertas"
+      }
+    },
+    "keyboardShortcuts": {
+      "navigation": {
+        "goToCollections": "Marcas",
+        "goToPriceLists": "Ofertas",
+        "goToPromotions": "Cupones y promociones"
+      }
+    }
+  },
+  "products": {
+    "productStatus": {
+      "draft": "Oculto (borrador)",
+      "published": "Visible en la tienda"
+    },
+    "columns": {
+      "collection": "Marca"
+    },
+    "fields": {
+      "collection": {
+        "label": "Marca"
+      }
+    }
+  },
+  "collections": {
+    "domain": "Marcas",
+    "subtitle": "Organiza los productos en marcas.",
+    "list": {
+      "empty": {
+        "heading": "No hay marcas",
+        "description": "No hay marcas para mostrar."
+      },
+      "filtered": {
+        "description": "Ninguna marca coincide con los criterios de filtro actuales."
+      }
+    },
+    "createCollection": "Crear Marca",
+    "createCollectionHint": "Crea una nueva marca para organizar tus productos.",
+    "createSuccess": "Marca creada exitosamente.",
+    "editCollection": "Editar Marca",
+    "handleTooltip": "El identificador se usa para referenciar la marca en tu tienda online. Si no se especifica, el identificador se generará a partir del título de la marca.",
+    "deleteWarning": "Estás a punto de eliminar la marca {{title}}. Esta acción no puede deshacerse.",
+    "removeSingleProductWarning": "Estás a punto de eliminar el producto {{title}} de la marca. Esta acción no puede deshacerse.",
+    "removeProductsWarning_one": "Estás a punto de eliminar {{count}} producto de la marca. Esta acción no puede deshacerse.",
+    "removeProductsWarning_other": "Estás a punto de eliminar {{count}} productos de la marca. Esta acción no puede deshacerse.",
+    "products": {
+      "list": {
+        "noRecordsMessage": "No hay productos en la marca."
+      },
+      "add": {
+        "successToast_one": "Producto agregado exitosamente a la marca.",
+        "successToast_other": "Productos agregados exitosamente a la marca."
+      },
+      "remove": {
+        "successToast_one": "Producto eliminado exitosamente de la marca.",
+        "successToast_other": "Productos eliminados exitosamente de la marca."
+      }
+    }
+  },
+  "customers": {
+    "export": {
+      "format": {
+        "description": "Elige el formato del archivo exportado. JSON cobro datos anidados en todos los módulos sin pérdida, lo cual es recomendado para solicitudes de acceso a datos personales."
+      }
+    }
+  },
+  "orders": {
+    "payment": {
+      "isReadyToBeCaptured": "El pago <0/> está pendiente. Marcalo como pagado cuando lo cobres.",
+      "capture": "Marcar como pagado",
+      "capture_short": "Marcar pagado",
+      "status": {
+        "captured": "Pagado",
+        "partiallyCaptured": "Pagado en parte"
+      },
+      "capturePayment": "Se marcará como pagado el monto de {{amount}}.",
+      "capturePaymentSuccess": "Pago de {{amount}} marcado como pagado"
+    },
+    "shipment": {
+      "title": "Marcar como enviado"
+    },
+    "fulfillment": {
+      "cancelWarning": "Estás a punto de cancelar un envío. Esta acción no puede deshacerse.",
+      "markAsDeliveredWarning": "Estás a punto de marcar el envío como entregado. Esta acción no puede deshacerse.",
+      "statusLabel": "Estado del envío",
+      "statusTitle": "Estado del envío",
+      "awaitingFulfillmentBadge": "Falta preparar",
+      "number": "Envío #{{number}}",
+      "create": "Preparar pedido",
+      "sendNotificationHint": "Notificar a los clientes sobre el envío creado.",
+      "disabledItemTooltip": "La opción de envío seleccionada no permite el envío de este artículo",
+      "error": {
+        "wrongQuantity_one": "Solo un artículo está disponible para envío"
+      },
+      "toast": {
+        "created": "Envío creado correctamente",
+        "canceled": "Envío cancelado correctamente",
+        "fulfillmentShipped": "No se puede cancelar un envío ya enviado",
+        "fulfillmentDelivered": "Envío marcado como entregado correctamente",
+        "fulfillmentPickedUp": "Envío marcado como recogido correctamente"
+      }
+    },
+    "refund": {
+      "systemPaymentDesc": "Uno o más de tus pagos son pagos del sistema. Ten en cuenta que Medusa no maneja los cobros y reembolsos para dichos pagos."
+    },
+    "activity": {
+      "events": {
+        "payment": {
+          "captured": "Pago recibido"
+        },
+        "fulfillment": {
+          "canceled": "Envío cancelado"
+        }
+      }
+    }
+  },
+  "stockLocations": {
+    "fulfillmentProviders": {
+      "header": "Proveedores de Envío",
+      "label": "Proveedores de envío conectados",
+      "connectedTo": "Conectado a {{count}} de {{total}} proveedores de envío",
+      "noProviders": "Esta Ubicación de Inventario no está conectada a ningún proveedor de envío.",
+      "successToast": "Proveedores de envío para la ubicación de inventario actualizados correctamente."
+    },
+    "shippingOptions": {
+      "fields": {
+        "priceType": {
+          "options": {
+            "calculated": {
+              "hint": "El precio de la opción de envío es calculado por el proveedor de envío durante el proceso de pago."
+            }
+          }
+        },
+        "provider": "Proveedor de envío",
+        "fulfillmentOption": "Opción de envío"
+      }
+    }
+  },
+  "taxRegions": {
+    "fields": {
+      "targets": {
+        "options": {
+          "productCollection": "Marcas"
+        },
+        "placeholders": {
+          "productCollection": "Buscar marcas"
+        },
+        "tags": {
+          "productCollection": "Marca"
+        }
+      }
+    }
+  },
+  "promotions": {
+    "domain": "Cupones y promociones",
+    "templates": {
+      "amount_off_products": {
+        "description": "Descuenta productos específicos o marcas"
+      }
+    }
+  },
+  "permissions": {
+    "resources": {
+      "product_collection": "Marca",
+      "price_list": "Oferta"
+    }
+  },
+  "priceLists": {
+    "domain": "Ofertas",
+    "list": {
+      "empty": {
+        "heading": "No hay ofertas",
+        "description": "No hay ofertas para mostrar."
+      },
+      "filtered": {
+        "description": "No hay ofertas que coincidan con los criterios de filtro actuales."
+      }
+    },
+    "delete": {
+      "confirmation": "Estás a punto de eliminar la oferta {{title}}. Esta acción no puede deshacerse.",
+      "successToast": "La oferta {{title}} fue eliminada exitosamente."
+    },
+    "create": {
+      "header": "Crear Oferta",
+      "subheader": "Crea una nueva oferta para gestionar los precios de tus productos.",
+      "successToast": "La oferta {{title}} fue creada exitosamente."
+    },
+    "edit": {
+      "header": "Editar Oferta",
+      "successToast": "La oferta {{title}} fue actualizada exitosamente."
+    },
+    "configuration": {
+      "edit": {
+        "header": "Editar Configuración de Oferta",
+        "description": "Edita la configuración de la oferta.",
+        "successToast": "La configuración de la oferta fue actualizada exitosamente."
+      }
+    },
+    "products": {
+      "delete": {
+        "confirmation_one": "Estás a punto de eliminar los precios de {{count}} producto en la oferta. Esta acción no puede deshacerse.",
+        "confirmation_other": "Estás a punto de eliminar los precios de {{count}} productos en la oferta. Esta acción no puede deshacerse."
+      },
+      "add": {
+        "successToast": "Precios agregados exitosamente a la oferta."
+      }
+    },
+    "fields": {
+      "type": {
+        "hint": "Elige el tipo de oferta que deseas crear.",
+        "options": {
+          "sale": {
+            "label": "Oferta",
+            "description": "Precio de oferta por un tiempo: en la tienda aparece con el precio normal tachado."
+          }
+        }
+      },
+      "startsAt": {
+        "label": "¿La oferta tiene una fecha de inicio?",
+        "hint": "Programa la oferta para que se active en el futuro."
+      },
+      "endsAt": {
+        "label": "¿La oferta tiene una fecha de caducidad?",
+        "hint": "Programa la oferta para que se desactive en el futuro."
+      },
+      "customerAvailability": {
+        "hint": "Elige qué grupos de clientes deben aplicar la oferta."
+      }
+    }
+  },
+  "regions": {
+    "shippingOption": {
+      "fulfillmentMethod": "Método de Envío"
+    }
+  },
+  "fields": {
+    "collection": "Marca",
+    "product_collections": "Marcas",
+    "fulfillmentProviders": "Proveedores de envío",
+    "fulfillmentProvider": "Proveedor de envío",
+    "paidTotal": "Total cobrado",
+    "fulfillment": "Envío"
+  }
+}
