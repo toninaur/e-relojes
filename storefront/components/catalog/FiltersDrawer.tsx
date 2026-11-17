@@ -48,7 +48,7 @@ export default function FiltersDrawer({
         role={open ? 'dialog' : undefined}
         aria-modal={open ? true : undefined}
         aria-label="Filtros"
-        className={`${open ? 'fixed inset-0 z-[60] flex flex-col bg-paper' : 'hidden'} lg:static lg:block lg:bg-transparent`}
+        className={`${open ? 'fixed inset-0 z-[70] flex flex-col bg-paper' : 'hidden'} lg:static lg:block lg:bg-transparent`}
       >
         <div className="lg:hidden flex items-center justify-between px-5 h-16 border-b border-line bg-white">
           <p className="font-display text-[1.4rem] font-semibold m-0">Filtros</p>

@@ -186,8 +186,10 @@ const source = {
  * products it touches. Only `product.deleted` removes documents: a deleted
  * variant, option, tag or category means the product has to be re-read.
  *
- * TODO: price lists emit no events (create, update, delete, batch prices).
- * TODO: price lists crossing their start or end date change prices silently.
+ * Listas de precios (Ofertas): no pasan por estos eventos. Las cubren
+ * subscribers/price-list-reindex.ts (cambios en el panel) y
+ * jobs/reindex-offers-by-date.ts (ofertas que empiezan o vencen por fecha).
+ *
  * TODO: linkProductsToSalesChannelWorkflow emits nothing.
  * TODO: batchLinkProductsToCategoryWorkflow emits nothing.
  * TODO: upsertVariantPricesWorkflow emits nothing when called directly.

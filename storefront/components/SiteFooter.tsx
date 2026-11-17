@@ -1,13 +1,13 @@
 import Link from 'next/link'
 import { brand, whatsappUrl } from '@/lib/brand'
 import { LEGAL_PAGES } from '@/components/legal/LegalPage'
+import StoreImage from '@/components/StoreImage'
 
 export default function SiteFooter() {
   return (
     <footer className="bg-ink text-white/75 pt-12 pb-[calc(3rem+env(safe-area-inset-bottom))]">
       <div className="wrap flex flex-wrap justify-between items-start gap-8">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={brand.logo} alt={brand.name} width={78} height={56} loading="lazy" className="h-14 w-auto" />
+        <StoreImage src={brand.logo} alt={brand.name} width={78} height={56} className="h-14 w-auto" />
         <nav className="flex flex-wrap gap-x-7 gap-y-5" aria-label="Pie">
           <Link href="/catalogo" className="text-white font-medium no-underline hover:underline">
             Catálogo

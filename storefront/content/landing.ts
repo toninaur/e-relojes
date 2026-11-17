@@ -2,6 +2,8 @@
 // combos de perfumes, categorías) salen de Medusa; esto es solo lo editorial.
 // Banner, destacados y la sección "Perfumes y decants" se editan en el panel
 // (Banner y Portada).
+import { brand } from '@/lib/brand'
+
 export const landing = {
   hero: {
     title: 'Relojes de las marcas que conocés, con envíos a todo el país',
@@ -13,7 +15,8 @@ export const landing = {
     { title: 'Cientos de modelos', text: 'Caballeros, damas y Casio' },
     { title: 'Envíos a todo el país', text: 'Por encomienda' },
     { title: 'Local en Asunción', text: 'Barrio Mburicao' },
-    { title: '4,7 en Google', text: 'Con 92 reseñas' },
+    // Puntaje y cantidad de reseñas: se cambian en lib/brand.ts (un solo lugar).
+    { title: `${brand.reviews.score} en ${brand.reviews.source}`, text: `Con ${brand.reviews.count} reseñas` },
   ],
   brands: {
     title: 'Algunas de las marcas que trabajamos',

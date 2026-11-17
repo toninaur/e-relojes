@@ -6,6 +6,7 @@ import { getProductBySlug, listProducts } from '@/lib/medusa/products'
 import { listBrands, listCategories } from '@/lib/medusa/catalog'
 import ProductGallery from '@/components/ProductGallery'
 import ProductPurchase from '@/components/ProductPurchase'
+import StoreImage from '@/components/StoreImage'
 import { ProductGrid } from '@/components/ProductCard'
 import { t } from '@/lib/texts'
 import { formatMoney } from '@/lib/format'
@@ -21,7 +22,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   if (!product) return {}
   const name = product.name
   // Al compartir por WhatsApp o Instagram, la vista previa muestra el precio.
-  const price = formatMoney(product.price, product.currency)
+  const price = product.price > 0 ? formatMoney(product.price, product.currency) : null
   const detail = product.description ?? (product.specs.join(' · ') || null)
   const description = [price, detail].filter(Boolean).join(' · ')
   const image = product.images.slice(0, 1)
@@ -129,8 +130,14 @@ export default async function ProductPage({ params }: { params: Params }) {
                   <summary className="cursor-pointer font-semibold">{t.sizeGuide}</summary>
                   <div className="mt-3">
                     {product.sizeChartImage && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={product.sizeChartImage} alt={t.sizeGuide} className="max-w-full rounded-lg border border-line" />
+                      <StoreImage
+                        src={product.sizeChartImage}
+                        alt={t.sizeGuide}
+                        width={800}
+                        height={600}
+                        sizes="(min-width: 1024px) 520px, 100vw"
+                        className="max-w-full h-auto rounded-lg border border-line"
+                      />
                     )}
                     {product.sizeChartText && <p className="text-muted whitespace-pre-line">{product.sizeChartText}</p>}
                   </div>
@@ -139,7 +146,7 @@ export default async function ProductPage({ params }: { params: Params }) {
 
               <ul className="mt-8 pt-6 border-t border-line text-[0.95rem] text-muted space-y-1.5">
                 <li>🚚 Envíos a todo el país, o retiro gratis en el local.</li>
-                <li>🎁 ¿Es un regalo? Avisanos y lo preparamos para la ocasión.</li>
+                <li>🎁 ¿Es un regalo? Marcalo al hacer el pedido y lo preparamos para la ocasión.</li>
               </ul>
             </div>
           </div>

@@ -11,6 +11,7 @@ import { jsonLd, storeJsonLd } from '@/lib/seo'
 import FeaturedProducts from '@/components/FeaturedProducts'
 import HeroCarousel, { type HeroSlide } from '@/components/HeroCarousel'
 import { OrganizerIcon, ThermosIcon } from '@/components/icons'
+import StoreImage from '@/components/StoreImage'
 
 function SectionHead({ title, text, dark = false }: { title: string; text?: string; dark?: boolean }) {
   return (
@@ -142,7 +143,7 @@ export default async function HomePage() {
                     <p className="text-white/70 text-[0.97rem] m-0">{landing.categories.descriptions[c.name]}</p>
                   )}
                   <Link href={`/catalogo?categoria=${c.handle}`} className="btn btn-light mt-auto self-start">
-                    Ver {c.name.toLowerCase()}
+                    Ver {c.name}
                   </Link>
                 </div>
               ))}
@@ -166,8 +167,15 @@ export default async function HomePage() {
               )}
               <div className="grid grid-cols-2 gap-4 mt-6">
                 {perfumes.photos.map((photo) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={photo.url} src={photo.url} alt={photo.alt} loading="lazy" className="rounded-[var(--radius-card)] aspect-square object-cover w-full" />
+                  <StoreImage
+                    key={photo.url}
+                    src={photo.url}
+                    alt={photo.alt}
+                    width={600}
+                    height={600}
+                    sizes="(min-width: 860px) 22vw, 45vw"
+                    className="rounded-[var(--radius-card)] aspect-square object-cover w-full h-auto"
+                  />
                 ))}
               </div>
             </div>
@@ -188,7 +196,7 @@ export default async function HomePage() {
                         {combo.originalPrice && (
                           <s className="block text-muted text-[0.85rem]">{formatMoney(combo.originalPrice, combo.currency)}</s>
                         )}
-                        <strong className="text-[1.1rem]">{formatMoney(combo.price, combo.currency)}</strong>
+                        <strong className="text-[1.1rem]">{combo.price > 0 ? formatMoney(combo.price, combo.currency) : 'Consultar precio'}</strong>
                         <br />
                         <Link href={`/producto/${combo.slug}`} className="text-[0.88rem] font-semibold text-accent no-underline hover:underline">
                           Ver combo
@@ -212,8 +220,14 @@ export default async function HomePage() {
               const body = (
                 <>
                   {'image' in item && item.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.image} alt={item.alt} loading="lazy" className="aspect-[4/3] object-cover w-full" />
+                    <StoreImage
+                      src={item.image}
+                      alt={item.alt}
+                      width={600}
+                      height={450}
+                      sizes="(min-width: 980px) 25vw, 50vw"
+                      className="aspect-[4/3] object-cover w-full h-auto"
+                    />
                   ) : (
                     <div className="aspect-[4/3] grid place-items-center bg-ink text-white" aria-hidden>
                       {'icon' in item && item.icon === 'thermos' ? <ThermosIcon className="w-16 h-16" /> : <OrganizerIcon className="w-16 h-16" />}
@@ -276,11 +290,12 @@ export default async function HomePage() {
             })}
           </div>
           <div className="grid gap-6 items-center mt-5 bg-white border border-line rounded-[var(--radius-card)] p-4 sm:grid-cols-[auto_1fr]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <StoreImage
               src={landing.howToBuy.gift.image}
               alt={landing.howToBuy.gift.alt}
-              loading="lazy"
+              width={629}
+              height={800}
+              sizes="(min-width: 640px) 150px, 100vw"
               className="w-full aspect-[16/10] sm:w-[150px] sm:aspect-square object-cover rounded-[10px]"
             />
             <div>
@@ -361,8 +376,7 @@ export default async function HomePage() {
                 </div>
               </dl>
               <div className="grid grid-cols-[90px_1fr] gap-4 items-center bg-paper rounded-[10px] p-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={brand.location.doorPhoto} alt="" loading="lazy" className="w-[90px] h-[110px] object-cover rounded-lg" />
+                <StoreImage src={brand.location.doorPhoto} alt="" width={90} height={110} className="w-[90px] h-[110px] object-cover rounded-lg" />
                 <p className="m-0 text-[0.93rem] text-muted">{brand.location.doorHint}</p>
               </div>
               <a className="btn btn-dark" href={brand.location.mapsUrl} target="_blank" rel="noopener">

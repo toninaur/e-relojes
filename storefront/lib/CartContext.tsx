@@ -10,7 +10,6 @@ import { t } from './texts'
 // cada cambio, así que la tienda no repite esas reglas.
 
 const CART_ID_KEY = 'erelojes-cart-id'
-const LEGACY_CART_KEY = 'vb-cart'
 
 // Relaciones que el carrito y el checkout necesitan, además de los campos por
 // defecto (totales incluidos).
@@ -117,9 +116,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const cartPromise = useRef<Promise<HttpTypes.StoreCart> | null>(null)
 
   useEffect(() => {
-    try {
-      window.localStorage.removeItem(LEGACY_CART_KEY)
-    } catch {}
     const id = readCartId()
     if (!id) {
       setReady(true)

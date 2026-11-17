@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Search, X } from 'lucide-react'
 import { formatMoney } from '@/lib/format'
 import type { SearchSuggestion } from '@/app/api/buscar/route'
+import StoreImage from '@/components/StoreImage'
 
 // Buscador del encabezado: la lupa abre una barra debajo del encabezado con
 // resultados mientras se escribe. Enter lleva al catálogo con la búsqueda; las
@@ -185,8 +186,7 @@ export default function HeaderSearch({ onOpen }: { onOpen?: () => void }) {
                           >
                             <span className="w-14 h-14 shrink-0 rounded-lg border border-line bg-white grid place-items-center overflow-hidden">
                               {p.image && (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={p.image} alt="" className="w-full h-full object-contain" loading="lazy" />
+                                <StoreImage src={p.image} alt="" width={56} height={56} className="w-full h-full object-contain" />
                               )}
                             </span>
                             <span className="flex-1 min-w-0">
@@ -198,7 +198,7 @@ export default function HeaderSearch({ onOpen }: { onOpen?: () => void }) {
                               <span className="block font-medium truncate">{p.model}</span>
                             </span>
                             <span className="text-right shrink-0">
-                              <strong className="block">{formatMoney(p.price, p.currency)}</strong>
+                              <strong className="block">{p.price > 0 ? formatMoney(p.price, p.currency) : 'Consultar precio'}</strong>
                               {p.originalPrice && (
                                 <s className="block text-[0.82rem] text-muted">{formatMoney(p.originalPrice, p.currency)}</s>
                               )}

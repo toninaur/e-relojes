@@ -56,7 +56,8 @@ export function productJsonLd(product: UiProduct) {
     brand: product.brand ? { '@type': 'Brand', name: product.brand } : undefined,
     category: product.categories[0]?.name,
     url,
-    offers: {
+    // Sin precio cargado no se informa la oferta (Google la marcaría como error).
+    offers: product.price > 0 ? {
       '@type': 'Offer',
       url,
       price: product.price,
@@ -64,6 +65,6 @@ export function productJsonLd(product: UiProduct) {
       availability: inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
       itemCondition: 'https://schema.org/NewCondition',
       seller: { '@id': absoluteUrl('/#tienda') },
-    },
+    } : undefined,
   }
 }

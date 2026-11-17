@@ -10,6 +10,7 @@ import { brand, whatsappUrl } from '@/lib/brand'
 import { t } from '@/lib/texts'
 import { formatMoney } from '@/lib/format'
 import { WhatsAppIcon } from '@/components/icons'
+import StoreImage from '@/components/StoreImage'
 
 // Carrito y checkout en una página. El pedido se crea en Medusa: datos de
 // contacto y dirección en el carrito, forma de entrega, pago manual y
@@ -43,6 +44,37 @@ function isPickup(option: ShippingOption | null): boolean {
   return !!option && (option.type?.code === 'pickup' || /retiro/i.test(option.name))
 }
 
+// Envíos por encomienda o al interior: no se puede cobrar en efectivo al
+// entregar, solo transferencia.
+function allowsCash(option: ShippingOption | null): boolean {
+  return !option || !/encomienda|interior/i.test(option.name)
+}
+
+// Teléfono de Paraguay: 9 dígitos o más (021 123 456, 0981 123 456, +595…).
+function isValidPhone(phone: string): boolean {
+  return phone.replace(/\D/g, '').length >= 9
+}
+
+// El pedido confirmado se guarda en la pestaña: si el cliente recarga la
+// página, sigue viendo el número y los datos para transferir.
+const PLACED_ORDER_KEY = 'erelojes-last-order'
+
+function savePlacedOrder(order: PlacedOrder | null) {
+  try {
+    if (order) window.sessionStorage.setItem(PLACED_ORDER_KEY, JSON.stringify(order))
+    else window.sessionStorage.removeItem(PLACED_ORDER_KEY)
+  } catch {}
+}
+
+function readPlacedOrder(): PlacedOrder | null {
+  try {
+    const raw = window.sessionStorage.getItem(PLACED_ORDER_KEY)
+    return raw ? (JSON.parse(raw) as PlacedOrder) : null
+  } catch {
+    return null
+  }
+}
+
 function optionCardCls(active: boolean) {
   return `flex items-center gap-3 border rounded-xl p-4 cursor-pointer transition-colors ${
     active ? 'border-ink bg-white' : 'border-line bg-white hover:border-muted'
@@ -68,6 +100,10 @@ export default function CheckoutPage() {
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bank_transfer')
 
+  // Aclaraciones del cliente y pedido para regalo.
+  const [notes, setNotes] = useState('')
+  const [isGift, setIsGift] = useState(false)
+
   const [discountInput, setDiscountInput] = useState('')
   const [discountBusy, setDiscountBusy] = useState(false)
   const [discountError, setDiscountError] = useState<string | null>(null)
@@ -79,6 +115,14 @@ export default function CheckoutPage() {
 
   const cartId = cart?.id
   const hasItems = items.length > 0
+
+  // Recargó la página después de confirmar: se vuelve a mostrar el pedido
+  // (salvo que ya haya empezado otro carrito).
+  useEffect(() => {
+    if (!ready) return
+    if (hasItems) savePlacedOrder(null)
+    else setOrder((current) => current ?? readPlacedOrder())
+  }, [ready, hasItems])
 
   // Formas de entrega del carrito: primero las que llevan a domicilio, el
   // retiro al final. Se elige de entrada la primera.
@@ -97,6 +141,10 @@ export default function CheckoutPage() {
   // La forma de entrega elegida se carga en el carrito para que el total la incluya.
   const selectedOption = shippingOptions.find((o) => o.id === optionId) ?? null
   const pickup = isPickup(selectedOption)
+  const cashAllowed = allowsCash(selectedOption)
+  useEffect(() => {
+    if (!cashAllowed) setPaymentMethod('bank_transfer')
+  }, [cashAllowed])
   const currentMethodId = cart?.shipping_methods?.[0]?.shipping_option_id
   useEffect(() => {
     if (!cartId || !selectedOption || currentMethodId === selectedOption.id) return
@@ -169,6 +217,10 @@ export default function CheckoutPage() {
       setError(t.contactRequired)
       return
     }
+    if (!isValidPhone(buyerPhone)) {
+      setError(t.phoneInvalid)
+      return
+    }
     if (!pickup && (!addressLine.trim() || !city.trim())) {
       setError(t.addressRequired)
       return
@@ -204,6 +256,8 @@ export default function CheckoutPage() {
           payment_method: paymentMethod,
           delivery_method: pickup ? 'pickup' : 'shipping',
           delivery_option: selectedOption.name,
+          ...(notes.trim() ? { notes: notes.trim() } : {}),
+          ...(isGift ? { gift: true } : {}),
         },
       })
       if (updated.shipping_methods?.[0]?.shipping_option_id !== selectedOption.id) {
@@ -217,12 +271,14 @@ export default function CheckoutPage() {
         setError(cartErrorMessage(result.error))
         return
       }
-      setOrder({
+      const placed: PlacedOrder = {
         number: result.order.display_id ?? 0,
         total: result.order.total,
         currency: result.order.currency_code.toUpperCase(),
         paymentMethod,
-      })
+      }
+      setOrder(placed)
+      savePlacedOrder(placed)
       forget()
       window.scrollTo({ top: 0 })
     } catch (err) {
@@ -236,6 +292,7 @@ export default function CheckoutPage() {
 
   const subtotal = cart?.item_subtotal ?? 0
   const shippingTotal = cart?.shipping_total ?? 0
+  const hasShippingMethod = Boolean(cart?.shipping_methods?.length)
   const discountTotal = cart?.discount_total ?? 0
   const total = cart?.total ?? 0
 
@@ -434,20 +491,48 @@ export default function CheckoutPage() {
                       />
                       <span className="text-[0.95rem] font-semibold">{t.bankTransferOption}</span>
                     </label>
-                    <label className={optionCardCls(paymentMethod === 'cash_on_delivery')}>
-                      <input
-                        type="radio"
-                        name="payment"
-                        checked={paymentMethod === 'cash_on_delivery'}
-                        onChange={() => setPaymentMethod('cash_on_delivery')}
-                        className="accent-ink"
-                      />
-                      <span className="text-[0.95rem] font-semibold">{t.cashOnDeliveryOption}</span>
-                    </label>
+                    {cashAllowed && (
+                      <label className={optionCardCls(paymentMethod === 'cash_on_delivery')}>
+                        <input
+                          type="radio"
+                          name="payment"
+                          checked={paymentMethod === 'cash_on_delivery'}
+                          onChange={() => setPaymentMethod('cash_on_delivery')}
+                          className="accent-ink"
+                        />
+                        <span className="text-[0.95rem] font-semibold">{t.cashOnDeliveryOption}</span>
+                      </label>
+                    )}
                   </div>
                   <p className="text-[0.9rem] text-muted mt-3 mb-0">
                     {paymentMethod === 'bank_transfer' ? t.transferHint : t.cashHint}
+                    {!cashAllowed && ` ${t.cashNotAvailable}`}
                   </p>
+                </div>
+
+                <div>
+                  <h2 className={sectionTitleCls}>{t.notesTitle}</h2>
+                  <label className="flex items-center gap-3 mb-4 cursor-pointer text-[0.95rem]">
+                    <input
+                      type="checkbox"
+                      checked={isGift}
+                      onChange={(e) => setIsGift(e.target.checked)}
+                      className="accent-ink w-4 h-4"
+                    />
+                    <span className="font-semibold">{t.giftOption}</span>
+                  </label>
+                  <label className="field-label" htmlFor="order-notes">
+                    {t.notesLabel}
+                  </label>
+                  <textarea
+                    id="order-notes"
+                    rows={3}
+                    maxLength={1000}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder={isGift ? t.notesGiftPlaceholder : t.notesPlaceholder}
+                    className="field resize-y"
+                  />
                 </div>
 
                 {error && (
@@ -456,19 +541,32 @@ export default function CheckoutPage() {
                   </p>
                 )}
 
-                <button type="submit" disabled={submitting || busy || !selectedOption} className="btn btn-dark w-full">
-                  {submitting ? t.submitting : `${t.submitOrder} · ${formatMoney(total, currency)}`}
-                </button>
+                <div className="space-y-3">
+                  <button type="submit" disabled={submitting || busy || !selectedOption} className="btn btn-dark w-full">
+                    {submitting ? t.submitting : `${t.submitOrder} · ${formatMoney(total, currency)}`}
+                  </button>
+                  {!selectedOption && <p className="text-[0.9rem] text-muted m-0">{t.shippingLoading}</p>}
+                  <p className="text-[0.85rem] text-muted m-0">
+                    Al enviar el pedido aceptás los{' '}
+                    <Link href="/terminos" className="underline hover:text-ink" target="_blank">
+                      términos y condiciones
+                    </Link>{' '}
+                    y la política de{' '}
+                    <Link href="/cambios-y-devoluciones" className="underline hover:text-ink" target="_blank">
+                      cambios y devoluciones
+                    </Link>
+                    .
+                  </p>
+                </div>
               </form>
 
               <aside className="order-1 lg:order-2 lg:sticky lg:top-28 self-start bg-white border border-line rounded-[var(--radius-card)] p-5 sm:p-6 space-y-5 h-fit">
                 <ul className="divide-y divide-line m-0 p-0 list-none">
                   {items.map((item) => (
                     <li key={item.lineId} className="flex gap-3 py-4 first:pt-0">
-                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-paper shrink-0">
+                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-white border border-line shrink-0">
                         {item.heroImage && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={item.heroImage} alt="" className="w-full h-full object-cover" />
+                          <StoreImage src={item.heroImage} alt="" width={64} height={64} className="w-full h-full object-contain" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -580,7 +678,9 @@ export default function CheckoutPage() {
                   </div>
                   <div className="flex justify-between text-muted">
                     <dt>{t.shippingLine}</dt>
-                    <dd className="m-0">{shippingTotal > 0 ? formatMoney(shippingTotal, currency) : t.freeShipping}</dd>
+                    <dd className="m-0">
+                      {!hasShippingMethod ? '—' : shippingTotal > 0 ? formatMoney(shippingTotal, currency) : t.freeShipping}
+                    </dd>
                   </div>
                   {discountTotal > 0 && (
                     <div className="flex justify-between text-green-700">
@@ -629,7 +729,7 @@ function OrderPlaced({ order }: { order: PlacedOrder }) {
           <WhatsAppIcon />
           {transfer ? t.sendComprobante : t.coordinateWhatsapp}
         </a>
-        <Link href="/catalogo" className="btn btn-outline">
+        <Link href="/catalogo" className="btn btn-outline" onClick={() => savePlacedOrder(null)}>
           {t.backToStore}
         </Link>
       </div>

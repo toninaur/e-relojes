@@ -99,7 +99,10 @@ function toUiVariant(variant: HttpTypes.StoreProductVariant): UiVariant {
   const cp = variant.calculated_price
   const price = cp?.calculated_amount ?? 0
   const original = cp?.original_amount ?? null
-  const unlimited = !variant.manage_inventory || variant.allow_backorder
+  // Sin precio cargado (o en 0) no se puede vender: queda como sin stock y la
+  // tienda muestra "Consultar precio".
+  const priced = price > 0
+  const unlimited = priced && (!variant.manage_inventory || variant.allow_backorder)
 
   return {
     id: variant.id,
@@ -110,7 +113,7 @@ function toUiVariant(variant: HttpTypes.StoreProductVariant): UiVariant {
     size,
     price,
     originalPrice: original !== null && original > price ? original : null,
-    stock: unlimited ? UNLIMITED_STOCK : Math.max(0, variant.inventory_quantity ?? 0),
+    stock: !priced ? 0 : unlimited ? UNLIMITED_STOCK : Math.max(0, variant.inventory_quantity ?? 0),
     unlimitedStock: Boolean(unlimited),
   }
 }
@@ -123,7 +126,10 @@ function toUiProduct(product: HttpTypes.StoreProduct, fallbackCurrency: string):
   const distinctSizes = new Set(variants.map((v) => v.size).filter(Boolean))
   if (distinctSizes.size <= 1) variants.forEach((v) => (v.size = null))
 
-  const cheapest = variants.reduce<UiVariant | null>((min, v) => (!min || v.price < min.price ? v : min), null)
+  // El precio "desde" es el de la variante más barata que tenga precio.
+  const cheapest = variants
+    .filter((v) => v.price > 0)
+    .reduce<UiVariant | null>((min, v) => (!min || v.price < min.price ? v : min), null)
   const currency =
     product.variants?.find((v) => v.calculated_price?.currency_code)?.calculated_price?.currency_code ??
     fallbackCurrency

@@ -5,6 +5,7 @@ import AddToCartButton from './AddToCartButton'
 import Price from './Price'
 import StockBadge, { stockOf } from './StockBadge'
 import { WhatsAppIcon } from './icons'
+import StoreImage from '@/components/StoreImage'
 
 export default function ProductCard({ product }: { product: UiProduct }) {
   const href = `/producto/${product.slug}`
@@ -17,12 +18,12 @@ export default function ProductCard({ product }: { product: UiProduct }) {
     <article className="group bg-white border border-line rounded-[var(--radius-card)] overflow-hidden flex flex-col transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_14px_32px_rgb(0_0_0/0.08)] motion-reduce:transition-shadow motion-reduce:hover:translate-y-0">
       <Link href={href} className="relative block aspect-square bg-white border-b border-line overflow-hidden">
         {image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <StoreImage
             src={image}
             alt={name}
-            loading="lazy"
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04] motion-reduce:group-hover:scale-100"
+            fill
+            sizes="(min-width: 640px) 300px, 50vw"
+            className="object-contain p-2 sm:p-3 transition-transform duration-700 ease-out group-hover:scale-[1.04] motion-reduce:group-hover:scale-100"
           />
         ) : (
           <span className="absolute inset-0 grid place-items-center bg-ink text-white font-display px-4 text-center">

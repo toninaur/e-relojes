@@ -1,11 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import StoreImage from '@/components/StoreImage'
 
+// Fotos del producto. Se muestran enteras (object-contain), sin recortar el
+// reloj. En el celular se pasan deslizando con el dedo; en la computadora, con
+// las miniaturas o las flechas.
 export default function ProductGallery({ images, alt }: { images: string[]; alt: string }) {
   const [active, setActive] = useState(0)
+  const touchX = useRef<number | null>(null)
+  const count = images.length
 
-  if (images.length === 0) {
+  if (count === 0) {
     return (
       <div className="aspect-square rounded-[var(--radius-card)] bg-ink grid place-items-center">
         <span className="text-white font-display text-xl px-6 text-center">{alt}</span>
@@ -13,9 +20,11 @@ export default function ProductGallery({ images, alt }: { images: string[]; alt:
     )
   }
 
+  const go = (next: number) => setActive(((next % count) + count) % count)
+
   return (
     <div className="flex flex-col-reverse md:flex-row gap-3">
-      {images.length > 1 && (
+      {count > 1 && (
         <div className="flex md:flex-col gap-2 overflow-x-auto md:overflow-y-auto md:max-h-[560px]">
           {images.map((src, i) => (
             <button
@@ -23,19 +32,58 @@ export default function ProductGallery({ images, alt }: { images: string[]; alt:
               type="button"
               onClick={() => setActive(i)}
               aria-label={`Ver foto ${i + 1}`}
+              aria-current={active === i}
               className={`shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 bg-white ${
                 active === i ? 'border-ink' : 'border-line hover:border-muted'
               }`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt="" className="w-full h-full object-cover" />
+              <StoreImage src={src} alt="" width={64} height={64} className="w-full h-full object-contain" />
             </button>
           ))}
         </div>
       )}
-      <div className="flex-1 aspect-square rounded-[var(--radius-card)] overflow-hidden bg-white border border-line">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={images[active]} alt={alt} className="w-full h-full object-cover" />
+      <div
+        className="group relative flex-1 aspect-square rounded-[var(--radius-card)] overflow-hidden bg-white border border-line"
+        onTouchStart={(e) => (touchX.current = e.touches[0].clientX)}
+        onTouchEnd={(e) => {
+          if (touchX.current === null || count < 2) return
+          const dx = e.changedTouches[0].clientX - touchX.current
+          touchX.current = null
+          if (Math.abs(dx) > 40) go(active + (dx < 0 ? 1 : -1))
+        }}
+      >
+        <StoreImage
+          src={images[active]}
+          alt={alt}
+          fill
+          sizes="(min-width: 1024px) 620px, 100vw"
+          loading="eager"
+          fetchPriority="high"
+          className="object-contain p-4 sm:p-6"
+        />
+        {count > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={() => go(active - 1)}
+              aria-label="Foto anterior"
+              className="absolute left-2 top-1/2 -translate-y-1/2 grid place-items-center w-10 h-10 rounded-full bg-white/90 border border-line shadow-sm md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => go(active + 1)}
+              aria-label="Foto siguiente"
+              className="absolute right-2 top-1/2 -translate-y-1/2 grid place-items-center w-10 h-10 rounded-full bg-white/90 border border-line shadow-sm md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+            <span className="md:hidden absolute bottom-2 left-1/2 -translate-x-1/2 bg-ink/70 text-white text-[0.8rem] font-semibold rounded-full px-2.5 py-0.5">
+              {active + 1} / {count}
+            </span>
+          </>
+        )}
       </div>
     </div>
   )

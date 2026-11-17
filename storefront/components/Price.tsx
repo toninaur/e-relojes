@@ -13,6 +13,10 @@ export default function Price({
 }) {
   const strong = size === 'lg' ? 'text-[1.7rem]' : 'text-[1.02rem] sm:text-[1.3rem]'
   const strike = size === 'lg' ? 'text-[1.05rem]' : 'text-[0.8rem] sm:text-[0.95rem]'
+  // Producto sin precio cargado en el panel.
+  if (!(amount > 0)) {
+    return <strong className={`${size === 'lg' ? 'text-[1.4rem]' : 'text-[1rem]'} font-bold text-muted`}>Consultar precio</strong>
+  }
   return (
     <div className="flex items-baseline gap-x-2.5 flex-wrap">
       <strong className={`${strong} font-bold`}>{formatMoney(amount, currency)}</strong>

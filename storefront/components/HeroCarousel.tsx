@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { brand, whatsappUrl } from '@/lib/brand'
 import { WhatsAppIcon } from './icons'
+import StoreImage from '@/components/StoreImage'
 
 // Portada con banner rotativo. Las diapositivas se cargan en el panel
 // (Banner); cada una tiene título, texto, foto del producto y un botón.
@@ -90,13 +91,12 @@ export default function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
                 </div>
               </div>
               <div className={'transition-transform duration-[2000ms] ease-out motion-reduce:transition-none ' + (active ? 'scale-100' : 'scale-[0.96]') + ' relative justify-self-center w-[min(320px,82%)] min-[820px]:w-[min(440px,100%)] aspect-square rounded-full bg-white grid place-items-center shadow-[0_0_0_10px_#1b1b1b,0_0_0_11px_#333] mt-4 min-[820px]:mt-0'}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <StoreImage
                   src={slide.image_url}
                   alt={slide.image_alt ?? ''}
-                  className={
-                    slide.image_fit === 'cover' ? 'w-full h-full rounded-full object-cover' : 'w-[72%] h-[72%] object-contain'
-                  }
+                  fill
+                  sizes="(min-width: 820px) 440px, 82vw"
+                  className={slide.image_fit === 'cover' ? 'rounded-full object-cover' : 'object-contain p-[14%]'}
                   fetchPriority={i === 0 ? 'high' : 'low'}
                   loading={i === 0 ? 'eager' : 'lazy'}
                 />

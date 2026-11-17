@@ -3,8 +3,9 @@ import type { AdminOrder, DetailWidgetProps } from '@medusajs/framework/types'
 import { Badge, Container, Heading, Text } from '@medusajs/ui'
 import { useEffect, useState } from 'react'
 
-// Panel → Pedidos → un pedido: cómo paga, cómo lo recibe y los datos para la
-// factura (RUC y razón social, si los cargó). La
+// Panel → Pedidos → un pedido: cómo paga, cómo lo recibe, si es para regalo,
+// las notas del cliente y los datos para la factura (RUC y razón social, si
+// los cargó). La
 // tienda lo guarda en la metadata del pedido al confirmar la compra
 // (storefront/app/carrito/page.tsx).
 
@@ -68,7 +69,20 @@ const OrderPaymentDelivery = ({ data: order }: DetailWidgetProps<AdminOrder>) =>
           Cómo lo recibe
         </Text>
         <Text>{delivery ?? 'No indicado'}</Text>
+        {metadata.gift === true && (
+          <div>
+            <Badge color="purple">Para regalo</Badge>
+          </div>
+        )}
       </div>
+      {typeof metadata.notes === 'string' && metadata.notes.trim() && (
+        <div className="flex flex-col gap-y-1 px-6 py-4">
+          <Text size="small" className="text-ui-fg-subtle">
+            Notas del cliente
+          </Text>
+          <Text className="whitespace-pre-line">{metadata.notes}</Text>
+        </div>
+      )}
       <div className="flex flex-col gap-y-1 px-6 py-4">
         <Text size="small" className="text-ui-fg-subtle">
           Factura

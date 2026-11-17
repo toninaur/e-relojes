@@ -53,8 +53,9 @@ variante lleva como SKU el código de Aronium de ese modelo.
    - `storeUrl`: URL del backend (el del panel, sin `/app`).
    - `apiKey`: la clave `sk_...` del paso 3.
    - `aroniumDb`: la base de Aronium. La de siempre es
-     `%LOCALAPPDATA%\Aronium\Data\pos.db`; si no está ahí, Aronium la muestra en
-     Configuración → Base de datos → "Abrir ubicación".
+     `%LOCALAPPDATA%/Aronium/Data/pos.db`; si no está ahí, Aronium la muestra en
+     Configuración → Base de datos → "Abrir ubicación". En el JSON, las rutas
+     van con `/` (o con `\\` doble): una sola `\` hace inválido el archivo.
    - `warehouseId`: `null` suma todos los depósitos; un número usa solo ese.
    - `intervalMinutes`: cada cuántos minutos sincroniza, de 5 a 30 (fuera de
      ese rango se usa el límite más cercano). Después de cambiarlo, reiniciar la

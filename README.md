@@ -123,6 +123,12 @@ búsqueda por texto con tolerancia a errores (título, marca, referencia,
 descripción) y conteos por filtro. Cambiar los campos del índice requiere
 reiniciar el backend (se reindexa al arrancar).
 
+Las ofertas (listas de precios) no pasan por los eventos de producto, así que
+se reindexa aparte: al crear, editar o borrar una oferta en el panel
+(`backend/src/subscribers/price-list-reindex.ts`, unos segundos después del
+último cambio) y cada hora si alguna oferta empezó o venció por fecha
+(`backend/src/jobs/reindex-offers-by-date.ts`).
+
 Filtros por URL, combinables y con varios valores (`?color=Negro&color=Azul`):
 `q`, `tipo`, `categoria` (handle), `marca` (handle), `color`, `malla`, `min`, `max`,
 `oferta=1`, `orden` (`nuevos`, `precio-asc`, `precio-desc`, `nombre`), `pagina`.
@@ -136,6 +142,11 @@ Filtros por URL, combinables y con varios valores (`?color=Negro&color=Azul`):
   `/robots.txt` (en modo demo no indexa nada), datos estructurados del local
   (inicio) y de cada producto (precio y stock), y vista previa al compartir con
   foto y precio. Las búsquedas y los filtros combinados llevan noindex.
+- **Imágenes**: todas pasan por `next/image` (`storefront/components/StoreImage.tsx`):
+  las fotos del backend (`/static/...`) y las de `public/images` y
+  `public/brand` se achican según la pantalla y se sirven en AVIF/WebP. Una URL
+  de otro sitio (por ejemplo una foto externa en el banner) se muestra sin
+  optimizar. La configuración está en `storefront/next.config.ts`.
 
 ## Checkout
 
@@ -145,6 +156,16 @@ del pedido (`payment_method`). Con transferencia se muestran los datos de
 `brand.payment` (`storefront/lib/brand.ts`, **a completar con la cuenta real**) y
 un botón para mandar el comprobante por WhatsApp. Cupón de demo: `BIENVENIDA10`
 (10%), creado por el seed del catálogo.
+
+- **Notas y regalo:** el cliente puede marcar "Es para regalo" y dejar notas;
+  quedan en la metadata (`gift`, `notes`) y el panel las muestra en el pedido.
+- **Efectivo:** no se ofrece si la forma de entrega tiene "encomienda" o
+  "interior" en el nombre (solo transferencia).
+- **Teléfono:** se pide con al menos 9 números.
+- El pedido confirmado se guarda en la pestaña (`sessionStorage`): si el
+  cliente recarga, sigue viendo el número y los datos para transferir.
+- Una variante sin precio (o en 0) no se puede comprar: la tienda muestra
+  "Consultar precio".
 
 ## Modo demo
 
@@ -175,3 +196,10 @@ los códigos nuevos se crean como productos en borrador.
 - Catálogo completo del cliente (con tipo, color y malla cargados).
 - Deploy en Railway: paso a paso en [DEPLOY.md](DEPLOY.md) (un solo proyecto:
   Postgres + backend + storefront; las fotos van en un volumen).
+- Ventas online registradas en Aronium: propuesta en
+  [docs/plan-ventas-online-aronium.md](docs/plan-ventas-online-aronium.md).
+- Avisos por email de pedidos nuevos: quedan a cargo del cliente (requiere
+  que se registre en un proveedor de correo, por ejemplo Resend o SendGrid, y
+  agregar el módulo de notificaciones de Medusa).
+- Formas de envío por zona: cargarlas en el panel (Configuración → Ubicaciones
+  y envíos) cuando el local defina zonas y precios.

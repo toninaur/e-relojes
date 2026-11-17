@@ -7,6 +7,7 @@ import { Menu, ShoppingBag, X } from 'lucide-react'
 import { brand, whatsappUrl } from '@/lib/brand'
 import { useCart } from '@/lib/CartContext'
 import HeaderSearch from './HeaderSearch'
+import StoreImage from './StoreImage'
 
 // Pestañas principales. "Cómo comprar" y "Local" son secciones de la portada:
 // se resaltan mientras esa sección está en pantalla (y Inicio, el resto).
@@ -73,8 +74,7 @@ export default function SiteHeader() {
     <header className="sticky top-0 z-50 bg-ink text-white border-b border-[#262626] pt-[env(safe-area-inset-top)]">
       <div className="wrap relative flex items-center justify-between h-[76px] gap-4">
         <Link href="/" aria-label={`${brand.name}, ir al inicio`} onClick={() => setOpen(false)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={brand.logo} alt={brand.name} width={78} height={56} className="h-14 w-auto" />
+          <StoreImage src={brand.logo} alt={brand.name} width={78} height={56} loading="eager" className="h-14 w-auto" />
         </Link>
 
         <div className="flex items-center gap-5">
