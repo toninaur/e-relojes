@@ -13,11 +13,13 @@ import { model } from '@medusajs/framework/utils'
 //                   escribir la devolución.
 // - cancelled:      cancelado (antes de llegar a Aronium, o con la devolución
 //                   ya escrita: `aronium_refund_number`).
+// - skipped:        "La cargué a mano" en el panel: el local la registró en
+//                   Aronium por su cuenta; el agente no la toca.
 export const AroniumWebSale = model.define('aronium_web_sale', {
   id: model.id({ prefix: 'arweb' }).primaryKey(),
   order_id: model.text().unique(),
   display_id: model.number(),
-  status: model.enum(['pending', 'registered', 'failed', 'cancel_pending', 'cancelled']).default('pending'),
+  status: model.enum(['pending', 'registered', 'failed', 'cancel_pending', 'cancelled', 'skipped']).default('pending'),
   // El pedido está pagado en la tienda (transferencia confirmada o cobrado).
   paid: model.boolean().default(false),
   // El pago ya figura en Aronium.

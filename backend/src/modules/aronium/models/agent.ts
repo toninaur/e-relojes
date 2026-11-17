@@ -21,4 +21,17 @@ export const AroniumAgent = model.define('aronium_agent', {
   // Códigos que el agente tiene que volver a mandar en la próxima pasada
   // ("Tomar de Aronium" en el panel): { codes: [...] }.
   refresh_codes: model.json().nullable(),
+  // ---- Manejado desde el panel → Aronium ----
+  // Pausar Aronium → tienda (stock, precios, productos, contenido).
+  sync_paused: model.boolean().default(false),
+  // Pausar tienda → Aronium (registrar ventas web, pagos y devoluciones).
+  web_sales_paused: model.boolean().default(false),
+  // Cada cuántos minutos tiene que pasar el agente (1 a 30); null = lo de su config.json.
+  desired_interval: model.number().nullable(),
+  // "Sincronizar todo ahora": el agente hace una pasada completa en la próxima.
+  full_requested: model.boolean().default(false),
+  // Lo que informa el agente: si puede escribir ventas en esta base de
+  // Aronium (versión conocida) y, si no, por qué.
+  write_enabled: model.boolean().nullable(),
+  write_blocked_reason: model.text().nullable(),
 })

@@ -187,6 +187,9 @@ export type AgentAction = 'register' | 'payment' | 'cancel'
 /** Trabajo para el agente, del más viejo al más nuevo. */
 export async function listAgentWork(container: MedusaContainer, limit = 20) {
   const aronium = service(container)
+  // Pausado desde el panel: no hay trabajo (lo pendiente espera en la cola).
+  const [agent] = await aronium.listAroniumAgents({}, { take: 1 })
+  if (agent?.web_sales_paused) return []
   const rows = await aronium.listAroniumWebSales(
     { status: ['pending', 'registered', 'cancel_pending'] },
     { order: { created_at: 'ASC' }, take: 500 }
@@ -254,6 +257,20 @@ export async function applyAgentResult(container: MedusaContainer, id: string, i
   })
 }
 
+/**
+ * Panel: "La cargué a mano". El local la registró en Aronium por su cuenta (por
+ * ejemplo, porque un producto no tenía código): el agente no la toca más.
+ */
+export async function skipWebSale(container: MedusaContainer, id: string) {
+  const aronium = service(container)
+  const [sale] = await aronium.listAroniumWebSales({ id }, { take: 1 })
+  if (!sale) throw new MedusaError(MedusaError.Types.NOT_FOUND, `No existe la venta web ${id}`)
+  if (sale.status !== 'failed' && sale.status !== 'pending') {
+    throw new MedusaError(MedusaError.Types.NOT_ALLOWED, 'Solo una venta pendiente o con error se puede marcar como cargada a mano.')
+  }
+  return aronium.updateAroniumWebSales({ id, status: 'skipped', last_error: null })
+}
+
 /** Panel: "Reintentar" una venta que falló. */
 export async function retryWebSale(container: MedusaContainer, id: string) {
   const aronium = service(container)
@@ -307,8 +324,9 @@ export async function listWebSalesForPanel(container: MedusaContainer, { limit =
 /**
  * Unidades a sumar al stock de Aronium por artículo de inventario, para que
  * una venta web no se descuente dos veces:
- * - ventas ya escritas en Aronium cuyo pedido sigue reservado en la tienda
- *   (todavía no entregado): Aronium ya las restó y la reserva también.
+ * - ventas ya escritas en Aronium (por el agente, o "cargadas a mano") cuyo
+ *   pedido sigue reservado en la tienda (todavía no entregado): Aronium ya las
+ *   restó y la reserva también.
  * - ventas canceladas en la tienda cuya devolución todavía no llegó a Aronium:
  *   la tienda ya liberó la reserva pero Aronium todavía no devolvió el stock.
  *
@@ -319,13 +337,13 @@ export async function webSaleStockAdjustments(
   inventoryItemBySku: Map<string, string>
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>()
-  const rows = await service(container).listAroniumWebSales({ status: ['registered', 'cancel_pending'] }, { take: 5000 })
+  const rows = await service(container).listAroniumWebSales({ status: ['registered', 'skipped', 'cancel_pending'] }, { take: 5000 })
   if (!rows.length) return out
 
   const registeredLines: string[] = []
   for (const row of rows) {
     const p = row.payload as unknown as WebSalePayload
-    if (row.status === 'registered') {
+    if (row.status === 'registered' || row.status === 'skipped') {
       registeredLines.push(...p.lines.map((l) => l.line_item_id))
     } else {
       for (const line of p.lines) {

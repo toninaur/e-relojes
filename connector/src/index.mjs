@@ -26,7 +26,7 @@ import { AroniumDataError, createWriter, isTransient } from './write.mjs'
 //   node src/index.mjs          corre en bucle (lo que usa la tarea programada)
 //   node src/index.mjs --once   una sola pasada completa y termina
 
-const VERSION = '0.5.0'
+const VERSION = '0.6.0'
 const FULL_EVERY_MINUTES = 30
 const IMAGE_BATCH_SIZE = 10
 
@@ -36,6 +36,11 @@ const writer = createWriter(config)
 const state = loadState()
 // Códigos que la tienda pidió volver a mandar ("Tomar de Aronium").
 let forceCodes = new Set()
+// Lo que se maneja desde el panel → Aronium (llega en cada respuesta de la
+// tienda): frecuencia, "Sincronizar todo ahora" y pausa.
+let intervalMinutes = config.intervalMinutes
+let fullRequested = false
+let wasPaused = false
 
 // Escribir ventas: solo si la base de Aronium es una versión conocida.
 const schema = checkSchemaSafe()
@@ -61,7 +66,7 @@ if (process.argv.includes('--once')) {
   log(`Agente ${VERSION} iniciado: ${config.storeUrl}, cada ${config.intervalMinutes} min${writeEnabled ? ', con ventas web' : ''}`)
   for (;;) {
     await pass()
-    await new Promise((r) => setTimeout(r, config.intervalMinutes * 60 * 1000))
+    await new Promise((r) => setTimeout(r, intervalMinutes * 60 * 1000))
   }
 }
 
@@ -144,6 +149,18 @@ async function webSales() {
 
 // ---- 3 y 4. Aronium → tienda -------------------------------------------------
 
+/** Ajustes del panel → Aronium que llegan en la respuesta de la tienda. */
+function applySettings(settings) {
+  if (!settings) return
+  const wanted = settings.interval_minutes ?? config.intervalMinutes
+  const next = Math.min(30, Math.max(1, Math.round(Number(wanted) || config.intervalMinutes)))
+  if (next !== intervalMinutes) {
+    log(`Frecuencia cambiada desde el panel: cada ${next} min`)
+    intervalMinutes = next
+  }
+  fullRequested = Boolean(settings.full_requested)
+}
+
 /** Lo que importa comparar de un producto: si cambia, se manda. */
 function signature(p) {
   return JSON.stringify([p.name, p.description, p.price, p.stock, p.enabled, p.group, p.image_hash, p.barcodes])
@@ -167,13 +184,27 @@ async function catalog(forceFull) {
   const current = new Map(products.map((p) => [p.code, signature(p)]))
   const vanished = [...state.lastSent.keys()].some((code) => !current.has(code))
   const full =
-    forceFull || vanished || state.lastSent.size === 0 || Date.now() - state.lastFullAt >= FULL_EVERY_MINUTES * 60 * 1000
+    forceFull ||
+    fullRequested ||
+    vanished ||
+    state.lastSent.size === 0 ||
+    Date.now() - state.lastFullAt >= FULL_EVERY_MINUTES * 60 * 1000
   const items = full
     ? products
     : products.filter((p) => forceCodes.has(p.code) || state.lastSent.get(p.code) !== current.get(p.code))
 
   try {
-    const result = await api.sync({ agent, full, items })
+    const result = await api.sync({ agent: { ...agent, interval_minutes: intervalMinutes }, full, items })
+    applySettings(result.settings)
+    if (result.paused) {
+      // Pausado desde el panel: la tienda no aplicó nada, así que no se toma
+      // como enviado (al reanudar se manda todo lo que cambió).
+      if (!wasPaused) log('Sincronización pausada desde el panel: Aronium → tienda en espera.')
+      wasPaused = true
+      return true
+    }
+    if (wasPaused) log('Sincronización reanudada desde el panel.')
+    wasPaused = false
     // Recién ahora, con la tienda al día, se toma como enviado.
     if (full) {
       state.lastSent = current

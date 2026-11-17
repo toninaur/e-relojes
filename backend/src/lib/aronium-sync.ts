@@ -145,6 +145,15 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
   const started = Date.now()
   const aronium: AroniumModuleService = container.resolve(ARONIUM_MODULE)
 
+  const [current] = await aronium.listAroniumAgents({}, { take: 1 })
+  // Ajustes del panel que el agente aplica solo (agente 0.6+).
+  const settings = {
+    interval_minutes: current?.desired_interval ?? null,
+    full_requested: Boolean(current?.full_requested),
+    sync_paused: Boolean(current?.sync_paused),
+  }
+  const empty = { prices_updated: 0, stock_updated: 0, created: 0, removed: 0, content_updated: 0, unchanged: 0, images_wanted: [] as string[], refresh_codes: [] as string[] }
+
   if (input.error) {
     await touchAgent(aronium, input.agent, { error: input.error })
     // El mismo error en cada pasada se anota una sola vez en el historial.
@@ -152,11 +161,17 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
     if (last?.status !== 'error' || last.error !== input.error) {
       await aronium.createAroniumRuns({ status: 'error', error: input.error, duration_ms: Date.now() - started })
     }
-    return { prices_updated: 0, stock_updated: 0, created: 0, removed: 0, unchanged: 0, images_wanted: [] as string[], refresh_codes: [] as string[] }
+    return { ...empty, settings }
+  }
+
+  // Pausado desde el panel: no se aplica nada (el agente no lo toma como
+  // enviado y lo vuelve a mandar al reanudar). Igual cuenta como conexión.
+  if (current?.sync_paused) {
+    await touchAgent(aronium, input.agent, {})
+    return { ...empty, paused: true, settings }
   }
 
   try {
-    const [current] = await aronium.listAroniumAgents({}, { take: 1 })
     const saved = (current?.known_codes as { codes?: unknown } | null | undefined)?.codes
     const known = Array.isArray(saved) ? new Set(saved.map(String)) : null
     const outcome = await applySnapshot(container, input.items, known, input.full)
@@ -182,6 +197,8 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
       ...(input.full ? { productsTotal: input.items.length } : {}),
       ...(knownCodes ? { knownCodes } : {}),
       ...(refreshCodes.length ? { clearRefresh: true } : {}),
+      // "Sincronizar todo ahora" ya se cumplió con esta pasada completa.
+      ...(input.full && current?.full_requested ? { clearFullRequest: true } : {}),
     })
     if (outcome.changes.length) {
       await recordRun(aronium, outcome.changes, {
@@ -199,6 +216,7 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
       unchanged: outcome.unchanged,
       images_wanted: outcome.imagesWanted,
       refresh_codes: refreshCodes,
+      settings: { ...settings, full_requested: settings.full_requested && !input.full },
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -483,6 +501,32 @@ export async function attachAroniumImages(container: MedusaContainer, input: z.i
   return { images_added: updates.length }
 }
 
+export const agentSettingsSchema = z.object({
+  sync_paused: z.boolean().optional(),
+  web_sales_paused: z.boolean().optional(),
+  // null = lo que diga el config.json del agente.
+  interval_minutes: z.number().int().min(MIN_INTERVAL).max(MAX_INTERVAL).nullable().optional(),
+  full_requested: z.boolean().optional(),
+})
+
+/** Panel → Aronium: interruptores, frecuencia y "Sincronizar todo ahora". */
+export async function updateAgentSettings(container: MedusaContainer, input: z.infer<typeof agentSettingsSchema>) {
+  const aronium: AroniumModuleService = container.resolve(ARONIUM_MODULE)
+  const [agent] = await aronium.listAroniumAgents({}, { take: 1 })
+  const data: Record<string, unknown> = {}
+  if (input.sync_paused !== undefined) {
+    data.sync_paused = input.sync_paused
+    // Al reanudar, una pasada completa: se pone al día con todo lo que cambió.
+    if (!input.sync_paused && agent?.sync_paused) data.full_requested = true
+  }
+  if (input.web_sales_paused !== undefined) data.web_sales_paused = input.web_sales_paused
+  if (input.interval_minutes !== undefined) data.desired_interval = input.interval_minutes
+  if (input.full_requested !== undefined) data.full_requested = input.full_requested
+  if (agent) await aronium.updateAroniumAgents({ id: agent.id, ...data })
+  else await aronium.createAroniumAgents(data)
+  return getAroniumStatus(container, { limit: 1 })
+}
+
 /** Panel → "Tomar de Aronium": la próxima pasada vuelve a copiar todo el contenido. */
 export async function requestProductResync(container: MedusaContainer, productId: string) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
@@ -563,20 +607,24 @@ async function touchAgent(
     productsTotal,
     knownCodes,
     clearRefresh,
-  }: { error?: string; productsTotal?: number; knownCodes?: string[]; clearRefresh?: boolean }
+    clearFullRequest,
+  }: { error?: string; productsTotal?: number; knownCodes?: string[]; clearRefresh?: boolean; clearFullRequest?: boolean }
 ) {
   const now = new Date()
-  const blocked = agent.write_enabled === false ? (agent.write_blocked_reason ?? 'El agente no puede escribir en esta base de Aronium.') : null
   const data = {
     last_seen_at: now,
     version: agent.version ?? null,
     host: agent.host ?? null,
     interval_minutes: Math.min(MAX_INTERVAL, Math.max(MIN_INTERVAL, Math.round(agent.interval_minutes ?? MIN_INTERVAL))),
+    // Si el agente puede registrar ventas web en esta base de Aronium (agente 0.5+).
+    ...(agent.write_enabled !== undefined && agent.write_enabled !== null
+      ? { write_enabled: agent.write_enabled, write_blocked_reason: agent.write_enabled ? null : (agent.write_blocked_reason ?? null) }
+      : {}),
     ...(productsTotal !== undefined ? { products_total: productsTotal } : {}),
     ...(knownCodes ? { known_codes: { codes: knownCodes } } : {}),
     ...(clearRefresh ? { refresh_codes: null } : {}),
-    // Un error de lectura, o (sin error) la escritura bloqueada por versión.
-    ...(error ? { last_error: error, last_error_at: now } : blocked ? { last_error: blocked, last_error_at: now } : { last_error: null }),
+    ...(clearFullRequest ? { full_requested: false } : {}),
+    ...(error ? { last_error: error, last_error_at: now } : { last_error: null }),
   }
   const [existing] = await aronium.listAroniumAgents({}, { take: 1 })
   if (existing) await aronium.updateAroniumAgents({ id: existing.id, ...data })

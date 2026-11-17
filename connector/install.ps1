@@ -41,7 +41,7 @@ if ($Config.aroniumDb -ne $Db) {
   Write-Host "config.json: aroniumDb = $Db"
 }
 
-# Aronium listo para las ventas web (usuario, forma de pago y envío): crea
+# Aronium listo para las ventas web (forma de pago y envío): crea
 # solo lo que falte, con copia de respaldo antes.
 & $Node --disable-warning=ExperimentalWarning (Join-Path $Root 'src\setup.mjs')
 if ($LASTEXITCODE -ne 0) { Write-Error 'No se pudo preparar Aronium: revisá el mensaje de arriba.'; exit 1 }

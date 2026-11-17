@@ -203,3 +203,15 @@ no entra nada. Antes de escribir se fija si ya existe una venta con ese `WEB-…
 - Aronium Pro / en red (base SQL Server): esta versión es para Aronium Lite
   (`pos.db`).
 - Más de un local o más de una caja con Aronium.
+
+## Manejo desde el panel (agente 0.6+)
+
+Panel → **Aronium**, sin tocar la computadora del local:
+
+- **Interruptores**: "Copiar stock, precios y productos de Aronium a la tienda" y "Registrar las ventas web en Aronium". Apagado, lo pendiente espera (no se pierde); al reanudar la sincronización se hace sola una pasada completa.
+- **Frecuencia** (1 a 30 min, o la del `config.json`): el agente la toma en su próxima pasada.
+- **Sincronizar todo ahora**: pasada completa en la próxima.
+- **Ventas web**: Reintentar y **La cargué a mano** (la saca de la cola; cuenta como ya descontada en Aronium para el stock).
+- **Ayuda e instalación**: cómo funciona, formato de la descripción, instalación con la clave del conector y qué hacer ante cada problema.
+
+Los ajustes viajan en la respuesta de `POST /aronium-agent/sync` (`settings`); pausado, la tienda responde `paused: true` sin aplicar nada y el agente no da los cambios por enviados.
