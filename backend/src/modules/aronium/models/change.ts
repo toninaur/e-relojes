@@ -9,7 +9,7 @@ export const AroniumChange = model.define('aronium_change', {
   code: model.text(),
   product_id: model.text().nullable(),
   product_title: model.text().nullable(),
-  field: model.enum(['price', 'stock', 'created', 'removed', 'image']),
+  field: model.enum(['price', 'stock', 'created', 'removed', 'image', 'content']),
   old_value: model.text().nullable(),
   new_value: model.text().nullable(),
   run: model.belongsTo(() => AroniumRun, { mappedBy: 'changes' }),

@@ -9,9 +9,16 @@ export const AroniumAgent = model.define('aronium_agent', {
   products_total: model.number().default(0),
   last_error: model.text().nullable(),
   last_error_at: model.dateTime().nullable(),
-  // Cada cuántos minutos pasa el agente (config.json, entre 5 y 30).
+  // Cada cuántos minutos pasa el agente (config.json, entre 1 y 30).
   interval_minutes: model.number().default(5),
   // Códigos activos en la última pasada buena ({ codes: [...] }): el que deja
   // de venir es una baja.
   known_codes: model.json().nullable(),
+  // Clave propia del agente (solo sirve para las rutas /aronium-agent). Se
+  // guarda el hash SHA-256; la clave se muestra una sola vez en el panel.
+  token_hash: model.text().nullable(),
+  token_created_at: model.dateTime().nullable(),
+  // Códigos que el agente tiene que volver a mandar en la próxima pasada
+  // ("Tomar de Aronium" en el panel): { codes: [...] }.
+  refresh_codes: model.json().nullable(),
 })

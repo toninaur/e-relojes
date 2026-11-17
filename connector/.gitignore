@@ -1,2 +1,5 @@
 config.json
 connector.log*
+state.json
+state.json.tmp
+backups/

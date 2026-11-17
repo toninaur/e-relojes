@@ -1,6 +1,6 @@
 # Plan: registrar en Aronium las ventas de la tienda online
 
-Estado: **propuesta, para decidir con el local**. No hay código hecho todavía.
+Estado: **reemplazado** por [sincronizador-aronium.md](sincronizador-aronium.md) (17/11/2026). Queda como antecedente.
 
 ## El problema
 

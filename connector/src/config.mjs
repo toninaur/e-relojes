@@ -1,0 +1,74 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// config.json del agente (ver config.example.json y README).
+
+export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const CONFIG_PATH = path.join(ROOT, 'config.json')
+
+export const MIN_INTERVAL = 1
+export const MAX_INTERVAL = 30
+const DEFAULT_INTERVAL = 1
+
+/** Ruta con %LOCALAPPDATA% y similares resueltos. */
+function expand(p) {
+  return String(p).replace(/%([A-Z_]+)%/gi, (_, name) => process.env[name] ?? `%${name}%`)
+}
+
+export function loadConfig() {
+  if (!fs.existsSync(CONFIG_PATH)) fail(`Falta ${CONFIG_PATH}. Copiá config.example.json a config.json y completalo.`)
+  let raw
+  try {
+    raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
+  } catch (error) {
+    fail(`config.json no es válido (${error.message}). En las rutas usá / o \\\\ en vez de \\.`)
+  }
+  const web = raw.webSales ?? {}
+  const cfg = {
+    storeUrl: String(raw.storeUrl ?? '').replace(/\/+$/, ''),
+    // Clave del conector (arag_…, panel → Aronium → "Generar clave"). Con la
+    // clave secreta de administrador vieja (apiKey) solo sincroniza el
+    // catálogo, sin ventas web.
+    token: String(raw.token ?? '').trim(),
+    apiKey: String(raw.apiKey ?? '').trim(),
+    aroniumDb: raw.aroniumDb
+      ? expand(raw.aroniumDb)
+      : path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Aronium', 'Data', 'pos.db'),
+    warehouseId: raw.warehouseId ? Number(raw.warehouseId) : null,
+    intervalMinutes: Math.min(MAX_INTERVAL, Math.max(MIN_INTERVAL, Math.round(Number(raw.intervalMinutes) || DEFAULT_INTERVAL))),
+    backupDir: raw.backupDir ? expand(raw.backupDir) : path.join(ROOT, 'backups'),
+    keepBackups: Math.max(1, Number(raw.keepBackups) || 14),
+    // Ventas web → Aronium (docs/sincronizador-aronium.md, decisiones D1-D6).
+    webSales: {
+      enabled: web.enabled !== false,
+      // Número de pedido en Aronium: "WEB-123".
+      orderPrefix: String(web.orderPrefix ?? 'WEB-'),
+      // Usuario de Aronium que figura en la venta (nombre o usuario). Vacío:
+      // el usuario principal (el historial de ventas de Aronium muestra solo
+      // las del usuario con la sesión abierta).
+      userName: String(web.userName ?? ''),
+      // Cliente cuando no dejó RUC (el "consumidor final" de Aronium).
+      defaultCustomerName: String(web.defaultCustomerName ?? 'Walk-in customer'),
+      // Forma de pago de Aronium según lo que eligió en la tienda.
+      paymentTypes: {
+        bank_transfer: 'Transferencia',
+        cash_on_delivery: 'Cash',
+        ...(web.paymentTypes ?? {}),
+      },
+      // Producto-servicio de Aronium para el costo de envío.
+      shippingCode: String(web.shippingCode ?? 'ENVIO'),
+      // Tipo de servicio de Aronium: el mismo que usan las ventas de la caja.
+      serviceType: Number(web.serviceType ?? 1),
+    },
+  }
+  if (!cfg.storeUrl) fail('config.json: falta storeUrl.')
+  if (!cfg.token && !cfg.apiKey) fail('config.json: falta token (la clave del conector, panel → Aronium → "Generar clave").')
+  return cfg
+}
+
+function fail(message) {
+  console.error(message)
+  process.exit(1)
+}

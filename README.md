@@ -181,13 +181,17 @@ funciona como tienda real.
 4. `storefront/public/brand/` y `storefront/public/images/`: logos e imágenes.
 5. Textos del carrito y checkout: `storefront/lib/texts.ts`.
 
-## Conector con Aronium
+## Sincronizador con Aronium
 
-El precio normal y el stock vienen de Aronium, el sistema de caja del local. Un
-agente en la PC del local (`connector/`, ver su [README](connector/README.md)) lee la base de
-Aronium y la manda a `POST /admin/aronium/sync`; el backend (`backend/src/lib/aronium-sync.ts`) compara y aplica,
-y el panel muestra el estado y el historial en **Aronium**. El código de Aronium es el SKU de la variante;
-los códigos nuevos se crean como productos en borrador.
+Aronium es el sistema de caja del local. El sincronizador los mantiene con el
+mismo stock y precios (Aronium → tienda, cada minuto) y registra en Aronium las
+ventas web, sus pagos y cancelaciones (tienda → Aronium). Un agente en la PC
+del local (`connector/`) lee y escribe la base de Aronium; el servidor
+(`backend/src/lib/aronium-*.ts`, módulo `aronium`) aplica los cambios y lleva la
+cola de ventas web; el panel → **Aronium** muestra todo.
+
+- Diseño y decisiones: [docs/sincronizador-aronium.md](docs/sincronizador-aronium.md)
+- Instalación y uso: [connector/README.md](connector/README.md)
 
 ## Pendiente
 
@@ -196,8 +200,8 @@ los códigos nuevos se crean como productos en borrador.
 - Catálogo completo del cliente (con tipo, color y malla cargados).
 - Deploy en Railway: paso a paso en [DEPLOY.md](DEPLOY.md) (un solo proyecto:
   Postgres + backend + storefront; las fotos van en un volumen).
-- Ventas online registradas en Aronium: propuesta en
-  [docs/plan-ventas-online-aronium.md](docs/plan-ventas-online-aronium.md).
+- Sincronizador: probarlo con Aronium abierto y después en el local
+  ([docs/sincronizador-aronium.md](docs/sincronizador-aronium.md)).
 - Avisos por email de pedidos nuevos: quedan a cargo del cliente (requiere
   que se registre en un proveedor de correo, por ejemplo Resend o SendGrid, y
   agregar el módulo de notificaciones de Medusa).
