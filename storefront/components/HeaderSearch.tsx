@@ -132,7 +132,7 @@ export default function HeaderSearch({ onOpen }: { onOpen?: () => void }) {
         aria-label="Buscar productos"
         aria-expanded={open}
         onClick={() => (open ? close() : show())}
-        className="text-white/85 hover:text-white p-0.5"
+        className="relative text-white/85 hover:text-white p-0.5 after:absolute after:-inset-2.5"
       >
         <Search className="w-6 h-6" />
       </button>
@@ -170,7 +170,7 @@ export default function HeaderSearch({ onOpen }: { onOpen?: () => void }) {
             </form>
 
             {showList && (
-              <div className="mt-3 bg-white text-ink rounded-2xl overflow-hidden max-h-[min(70vh,560px)] overflow-y-auto">
+              <div className="mt-3 bg-white text-ink rounded-2xl overflow-hidden max-h-[min(60svh,560px)] overscroll-contain overflow-y-auto">
                 {results.length > 0 ? (
                   <>
                     <ul id={listId} role="listbox" aria-label="Resultados">

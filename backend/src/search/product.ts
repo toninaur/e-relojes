@@ -32,6 +32,21 @@ const PRODUCT_GRAPH_FIELDS = [
 // Una opción de variante llamada así cuenta como color del producto.
 const COLOR_OPTION = /^(color|colour)$/i;
 
+/** El título sin la marca adelante, normalizado para ordenar. */
+function modelSortKey(title: string | null | undefined, brand: string | null | undefined): string | null {
+  const full = (title ?? "").trim();
+  if (!full) return null;
+  const b = (brand ?? "").trim();
+  const model =
+    b && full.toLowerCase().startsWith(`${b.toLowerCase()} `)
+      ? full.slice(b.length + 1).trim()
+      : full;
+  return model
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
 /** `"Negro | Dorado"` o `["Negro", "Dorado"]` → `["Negro", "Dorado"]`. */
 function listValue(value: unknown): string[] {
   const parts = Array.isArray(value)
@@ -67,6 +82,10 @@ const productFields = search.define({
   status: search.keyword().filterable().retrievable(false),
   sales_channel_ids: search.keyword().array().filterable().retrievable(false),
   title: search.text().searchable({ weight: 3 }).sortable().retrievable(),
+  // Orden "Nombre (A-Z)" del catálogo: el modelo sin la marca ("PRX", no
+  // "Tissot PRX"), que es lo que la tienda muestra grande en cada tarjeta.
+  // En minúsculas y sin acentos, para que el orden no dependa de eso.
+  model_sort: search.keyword().sortable().retrievable(false),
   description: search.text().searchable({ weight: 1 }),
   handle: search.keyword().retrievable(),
   // Returned on hits only: never filtered, sorted or faceted on.
@@ -132,6 +151,7 @@ function toDocument(
     status: product.status ?? null,
     sales_channel_ids: salesChannelIds,
     title: product.title ?? null,
+    model_sort: modelSortKey(product.title, product.collection?.title),
     description: product.description ?? null,
     handle: product.handle ?? null,
     thumbnail: product.thumbnail ?? null,

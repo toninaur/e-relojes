@@ -67,14 +67,29 @@ export default function SiteHeader() {
   const { items } = useCart()
   const cartCount = items.reduce((sum, i) => sum + i.quantity, 0)
 
+  // Al bajar, el encabezado gana una sombra.
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const update = () => setScrolled(window.scrollY > 8)
+    update()
+    window.addEventListener('scroll', update, { passive: true })
+    return () => window.removeEventListener('scroll', update)
+  }, [])
+
   const tabCls = (active: boolean) =>
     `text-[0.95rem] font-medium no-underline transition-colors ${active ? 'text-white' : 'text-white/75 hover:text-white'}`
 
   return (
-    <header className="sticky top-0 z-50 bg-ink text-white border-b border-[#262626] pt-[env(safe-area-inset-top)]">
+    // Negro sólido siempre; al bajar gana una sombra que lo separa del
+    // contenido. (Un fondo semitransparente se veía gris sobre la página clara.)
+    <header
+      className={`sticky top-0 z-50 bg-ink text-white border-b border-[#262626] pt-[env(safe-area-inset-top)] transition-shadow duration-500 ${
+        scrolled ? 'shadow-[0_10px_30px_-10px_rgb(0_0_0/0.45)]' : ''
+      }`}
+    >
       <div className="wrap relative flex items-center justify-between h-[76px] gap-4">
         <Link href="/" aria-label={`${brand.name}, ir al inicio`} onClick={() => setOpen(false)}>
-          <StoreImage src={brand.logo} alt={brand.name} width={78} height={56} loading="eager" className="h-14 w-auto" />
+          <StoreImage src={brand.logo} alt={brand.name} width={79} height={56} loading="eager" className="h-14 w-auto" />
         </Link>
 
         <div className="flex items-center gap-5">
@@ -125,7 +140,7 @@ export default function SiteHeader() {
           <Link
             href="/carrito"
             aria-label={`Carrito${cartCount ? `, ${cartCount} productos` : ''}`}
-            className="relative text-white/85 hover:text-white"
+            className="relative text-white/85 hover:text-white after:absolute after:-inset-2.5"
             onClick={() => setOpen(false)}
           >
             <ShoppingBag className="w-6 h-6" />
@@ -138,7 +153,7 @@ export default function SiteHeader() {
 
           <button
             type="button"
-            className="min-[900px]:hidden text-white p-1"
+            className="min-[900px]:hidden text-white p-2 -m-1"
             aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
             aria-expanded={open}
             onClick={() => setOpen((o) => !o)}

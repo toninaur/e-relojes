@@ -9,7 +9,9 @@ import StoreImage from '@/components/StoreImage'
 // las miniaturas o las flechas.
 export default function ProductGallery({ images, alt }: { images: string[]; alt: string }) {
   const [active, setActive] = useState(0)
-  const touchX = useRef<number | null>(null)
+  // Deslizar con el dedo: solo si el gesto es más horizontal que vertical (si
+  // no, la persona estaba bajando por la página).
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
   const count = images.length
 
   if (count === 0) {
@@ -43,14 +45,17 @@ export default function ProductGallery({ images, alt }: { images: string[]; alt:
         </div>
       )}
       <div
-        className="group relative flex-1 aspect-square rounded-[var(--radius-card)] overflow-hidden bg-white border border-line"
-        onTouchStart={(e) => (touchX.current = e.touches[0].clientX)}
+        className="group relative flex-1 aspect-square rounded-[var(--radius-card)] overflow-hidden bg-white border border-line shadow-lift"
+        onTouchStart={(e) => (touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY })}
         onTouchEnd={(e) => {
-          if (touchX.current === null || count < 2) return
-          const dx = e.changedTouches[0].clientX - touchX.current
-          touchX.current = null
-          if (Math.abs(dx) > 40) go(active + (dx < 0 ? 1 : -1))
+          const start = touchStart.current
+          touchStart.current = null
+          if (!start || count < 2) return
+          const dx = e.changedTouches[0].clientX - start.x
+          const dy = e.changedTouches[0].clientY - start.y
+          if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) go(active + (dx < 0 ? 1 : -1))
         }}
+        onTouchCancel={() => (touchStart.current = null)}
       >
         <StoreImage
           src={images[active]}

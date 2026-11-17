@@ -560,7 +560,7 @@ export default function CheckoutPage() {
                 </div>
               </form>
 
-              <aside className="order-1 lg:order-2 lg:sticky lg:top-28 self-start bg-white border border-line rounded-[var(--radius-card)] p-5 sm:p-6 space-y-5 h-fit">
+              <aside className="order-1 lg:order-2 lg:sticky lg:top-28 self-start bg-white border border-line rounded-[var(--radius-card)] p-5 sm:p-6 space-y-5 h-fit shadow-lift">
                 <ul className="divide-y divide-line m-0 p-0 list-none">
                   {items.map((item) => (
                     <li key={item.lineId} className="flex gap-3 py-4 first:pt-0">
@@ -586,7 +586,7 @@ export default function CheckoutPage() {
                             onClick={() => remove(item.lineId)}
                             disabled={busy}
                             aria-label={`${t.remove} ${item.title}`}
-                            className="text-muted hover:text-ink p-0.5 -mt-0.5 shrink-0"
+                            className="relative text-muted hover:text-ink p-0.5 -mt-0.5 shrink-0 after:absolute after:-inset-3"
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -599,7 +599,7 @@ export default function CheckoutPage() {
                               onClick={() => changeQuantity(item.lineId, item.quantity - 1)}
                               disabled={busy || item.quantity <= 1}
                               aria-label="Restar uno"
-                              className="p-1.5 disabled:opacity-30"
+                              className="p-3 sm:p-1.5 disabled:opacity-30"
                             >
                               <Minus className="w-3.5 h-3.5" />
                             </button>
@@ -611,7 +611,7 @@ export default function CheckoutPage() {
                               onClick={() => changeQuantity(item.lineId, item.quantity + 1)}
                               disabled={busy}
                               aria-label="Sumar uno"
-                              className="p-1.5 disabled:opacity-30"
+                              className="p-3 sm:p-1.5 disabled:opacity-30"
                             >
                               <Plus className="w-3.5 h-3.5" />
                             </button>

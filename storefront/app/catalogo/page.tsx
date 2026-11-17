@@ -166,7 +166,7 @@ export default async function CatalogPage({ searchParams }: { searchParams: Sear
 
   return (
     <>
-      <div className="bg-ink text-white pt-12 pb-10">
+      <div className="bg-ink text-white pt-12 pb-10 glow-dark">
         <div className="wrap">
           <h1 className="text-[clamp(2.2rem,5vw,3.6rem)] mb-2">{heading}</h1>
           <p className="text-white/70 m-0">

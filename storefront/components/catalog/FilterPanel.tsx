@@ -159,7 +159,7 @@ export default function FilterPanel({
               inputMode="numeric"
               placeholder="Mínimo"
               defaultValue={state.min ?? ''}
-              className="field !py-2 !px-3 !text-[0.92rem] min-w-0"
+              className="field !py-2 !px-3 sm:!text-[0.92rem] min-w-0"
             />
             <span className="text-muted">–</span>
             <label className="sr-only" htmlFor="price-max">
@@ -171,7 +171,7 @@ export default function FilterPanel({
               inputMode="numeric"
               placeholder="Máximo"
               defaultValue={state.max ?? ''}
-              className="field !py-2 !px-3 !text-[0.92rem] min-w-0"
+              className="field !py-2 !px-3 sm:!text-[0.92rem] min-w-0"
             />
           </div>
           <button type="submit" className="btn btn-outline btn-sm w-full mt-2">

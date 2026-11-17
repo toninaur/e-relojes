@@ -17,12 +17,33 @@
   --font-sans: var(--font-figtree), "Helvetica Neue", Arial, sans-serif;
 
   --radius-card: 14px;
+
+  /* Elevación: sombras en capas (una cercana y nítida, otra lejana y
+     difusa), como la luz real. Clases: shadow-card, shadow-lift, shadow-float. */
+  --shadow-card: 0 1px 2px rgb(20 18 14 / 0.04), 0 4px 14px -4px rgb(20 18 14 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(20 18 14 / 0.05), 0 18px 40px -12px rgb(20 18 14 / 0.2);
+  --shadow-float: 0 4px 10px rgb(20 18 14 / 0.06), 0 30px 70px -20px rgb(20 18 14 / 0.32);
+
+  /* Curva de las animaciones: arranca rápido y frena suave. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @layer base {
   html {
     scroll-behavior: smooth;
     scroll-padding-top: 88px;
+    /* iPhone: sin el recuadro gris que Safari pinta al tocar un link o botón. */
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Toques inmediatos: sin la espera del doble toque para hacer zoom. */
+  a,
+  button,
+  label,
+  summary,
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
   }
   @media (prefers-reduced-motion: reduce) {
     html {
@@ -52,7 +73,9 @@
 }
 
 @utility wrap {
-  width: min(1200px, 100% - 2.5rem);
+  /* En un iPhone girado, la muesca y la barra de inicio ocupan los costados
+     (env(safe-area-inset-*)); el contenido no se mete abajo. */
+  width: min(1200px, 100% - 2.5rem - env(safe-area-inset-left) - env(safe-area-inset-right));
   margin-inline: auto;
 }
 
@@ -101,31 +124,39 @@
     background: #fff;
     color: var(--color-ink);
   }
-  .btn-light:hover {
-    background: #e9e7e2;
-  }
   .btn-outline-light {
     border-color: rgb(255 255 255 / 0.45);
     color: #fff;
-  }
-  .btn-outline-light:hover {
-    border-color: #fff;
-    background: rgb(255 255 255 / 0.08);
   }
   .btn-dark {
     background: var(--color-ink);
     color: #fff;
   }
-  .btn-dark:hover:not(:disabled) {
-    background: #333;
-  }
   .btn-outline {
     border-color: var(--color-ink);
     color: var(--color-ink);
   }
-  .btn-outline:hover {
-    background: var(--color-ink);
-    color: #fff;
+  /* Hover solo con mouse: en iPhone un toque deja el :hover "pegado" (un
+     botón con borde quedaba relleno de negro después de tocarlo). */
+  @media (hover: hover) {
+    .btn-light:hover {
+      background: #e9e7e2;
+    }
+    .btn-outline-light:hover {
+      border-color: #fff;
+      background: rgb(255 255 255 / 0.08);
+    }
+    .btn-dark:hover:not(:disabled) {
+      background: #333;
+    }
+    .btn-outline:hover {
+      background: var(--color-ink);
+      color: #fff;
+    }
+    .carousel-arrow:hover {
+      border-color: #fff;
+      background: rgb(255 255 255 / 0.08);
+    }
   }
   .btn-sm {
     padding: 0.6rem 1.05rem;
@@ -143,10 +174,6 @@
     color: #fff;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s;
-  }
-  .carousel-arrow:hover {
-    border-color: #fff;
-    background: rgb(255 255 255 / 0.08);
   }
 
   .chip {
@@ -178,6 +205,10 @@
     border-radius: 10px;
     padding: 0.75rem 0.9rem;
     font-size: 1rem;
+    color: var(--color-ink);
+    /* Sin el estilo nativo de iOS (sombra interna, esquinas propias). */
+    -webkit-appearance: none;
+    appearance: none;
   }
   .field:focus {
     outline: none;
@@ -218,5 +249,213 @@
   animation: panel-in 0.22s ease-out both;
   @media (prefers-reduced-motion: reduce) {
     animation-name: panel-fade;
+  }
+}
+
+/* ───────────── Profundidad y movimiento ─────────────
+   Todo anima solo transform y opacity (lo que el navegador mueve sin
+   recalcular la página). Con "reducir movimiento" quedan solo fundidos o
+   nada. El JavaScript está en components/MotionEffects.tsx. */
+
+/* Botones: se levantan apenas y ganan sombra. */
+@media (hover: hover) {
+  .btn-dark:hover:not(:disabled),
+  .btn-light:hover,
+  .btn-outline:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px -8px rgb(0 0 0 / 0.35);
+  }
+}
+/* Al apretar: se hunde un poco (va después del hover para ganarle). */
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+  box-shadow: none;
+}
+.btn {
+  transition:
+    transform 0.25s var(--ease-out-soft),
+    box-shadow 0.25s var(--ease-out-soft),
+    background 0.2s,
+    color 0.2s,
+    border-color 0.2s;
+}
+
+/* Intensidad del movimiento. Con "reducir movimiento" (en Windows se activa
+   al apagar "Mostrar animaciones", y muchas PC vienen así) el movimiento se
+   suaviza en vez de desaparecer: la cinta va más lenta y el relieve, el
+   paralaje y las apariciones se mueven la mitad. */
+:root {
+  --motion: 1;
+  --reveal-distance: 18px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0.5;
+    --reveal-distance: 8px;
+  }
+}
+
+/* Aparición al hacer scroll (data-reveal). MotionEffects marca la página con
+   .reveal-ready recién cuando arrancó, y antes muestra lo que ya está en
+   pantalla: así nada queda oculto esperando al JavaScript ni aparece todo de
+   golpe. Los hijos de [data-reveal-stagger] entran escalonados.
+   Usa "translate" (no "transform") para no pisar el relieve de las tarjetas;
+   las clases de tarjeta repiten estas dos transiciones en su propia lista. */
+.reveal-ready [data-reveal]:not(.is-visible),
+.reveal-ready [data-reveal-stagger]:not(.is-visible) > * {
+  opacity: 0;
+  translate: 0 var(--reveal-distance);
+}
+[data-reveal-stagger] > * {
+  --reveal-delay: calc(min(var(--i, 0), 8) * 70ms);
+}
+[data-reveal],
+[data-reveal-stagger] > * {
+  transition:
+    opacity 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+    translate 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms);
+}
+
+/* Tarjeta con relieve: se levanta y se inclina hacia el puntero (las
+   variables --rx/--ry/--mx/--my las pone MotionEffects). Brillo suave que
+   sigue al mouse. Solo con mouse; en pantallas táctiles queda quieta.
+   En reposo NO lleva transformación: una transformación 3D permanente hace
+   que Chrome la dibuje en una capa de la placa de video, y en algunas PC
+   aparecen rayas finas (costuras) cruzando el contenido. */
+.tilt-card {
+  position: relative;
+  box-shadow: var(--shadow-card);
+  transition:
+    opacity 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+    translate 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+    transform 0.6s var(--ease-out-soft),
+    box-shadow 0.6s var(--ease-out-soft);
+}
+.tilt-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), rgb(255 255 255 / 0.28), transparent 45%);
+  transition: opacity 0.5s var(--ease-out-soft);
+}
+@media (hover: hover) and (pointer: fine) {
+  .tilt-card:hover {
+    transform: perspective(900px) translateY(calc(-6px * var(--motion))) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    box-shadow: var(--shadow-float);
+    transition:
+      opacity 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+      translate 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+      transform 0.25s var(--ease-out-soft),
+      box-shadow 0.6s var(--ease-out-soft);
+  }
+  .tilt-card:hover::after {
+    opacity: 1;
+  }
+}
+
+/* Tarjeta que solo se levanta (sin inclinarse). */
+.lift-card {
+  box-shadow: var(--shadow-card);
+  transition:
+    opacity 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+    translate 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+    transform 0.5s var(--ease-out-soft),
+    box-shadow 0.5s var(--ease-out-soft);
+}
+@media (hover: hover) {
+  .lift-card:hover {
+    transform: translateY(calc(-4px * var(--motion)));
+    box-shadow: var(--shadow-lift);
+  }
+}
+
+/* Tarjetas sobre fondo oscuro: borde de luz arriba en vez de sombra. */
+.dark-card {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.045), rgb(255 255 255 / 0.01));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 20px 40px -24px rgb(0 0 0 / 0.8);
+  transition:
+    opacity 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+    translate 0.8s var(--ease-out-soft) var(--reveal-delay, 0ms),
+    transform 0.5s var(--ease-out-soft),
+    border-color 0.3s;
+}
+@media (hover: hover) {
+  .dark-card:hover {
+    transform: translateY(calc(-4px * var(--motion)));
+    border-color: #3a3a3a;
+  }
+}
+
+/* Secciones oscuras con un halo de luz arriba, para que no se vean planas. */
+.glow-dark {
+  background-image: radial-gradient(ellipse 70% 55% at 50% -10%, rgb(255 255 255 / 0.07), transparent 70%);
+}
+
+/* Portada: halo de luz detrás del reloj. */
+.hero-glow {
+  position: absolute;
+  inset: -18%;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgb(255 255 255 / 0.16), rgb(31 95 214 / 0.08) 45%, transparent 70%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+/* Progreso de la diapositiva activa del banner. Va en una capa propia de la
+   placa de video (will-change): recorre pocos píxeles en varios segundos y,
+   sin eso, Chrome lo redondea a píxeles enteros y avanza a saltos. */
+@keyframes slide-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.slide-progress {
+  transform-origin: left center;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* Cinta de marcas que se desliza sola de derecha a izquierda. La lista va dos
+   veces seguidas y se corre la mitad, así el bucle no tiene salto. Se frena
+   con el mouse o el foco. Con "reducir movimiento" va más lenta. */
+@keyframes marquee {
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+.marquee {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: marquee calc(var(--marquee-duration, 45s) / var(--motion)) linear infinite;
+}
+.marquee:focus-within .marquee-track {
+  animation-play-state: paused;
+}
+/* Solo con mouse: en iPhone un toque la dejaba frenada (hover pegado). */
+@media (hover: hover) {
+  .marquee:hover .marquee-track {
+    animation-play-state: paused;
+  }
+}
+
+/* iPhone: los campos de texto nunca menos de 16 px en pantallas chicas (con
+   menos, Safari hace zoom solo al tocarlos y la página queda agrandada). */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: max(16px, 1em) !important;
   }
 }

@@ -21,7 +21,8 @@ export const SORTS = {
   nuevos: { label: 'Más nuevos', order: { created_at: 'DESC' } },
   'precio-asc': { label: 'Menor precio', order: { [PRICE_FIELD]: 'ASC' } },
   'precio-desc': { label: 'Mayor precio', order: { [PRICE_FIELD]: 'DESC' } },
-  nombre: { label: 'Nombre (A-Z)', order: { title: 'ASC' } },
+  // Por modelo, sin la marca (campo model_sort del índice: backend/src/search/product.ts).
+  nombre: { label: 'Nombre (A-Z)', order: { model_sort: 'ASC' } },
 } as const
 export type SortKey = keyof typeof SORTS
 export const DEFAULT_SORT: SortKey = 'nuevos'

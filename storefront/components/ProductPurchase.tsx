@@ -123,6 +123,8 @@ export default function ProductPurchase({ product }: { product: UiProduct }) {
         <input
           id="qty"
           type="number"
+          inputMode="numeric"
+          pattern="[0-9]*"
           min={1}
           max={Math.max(1, available)}
           value={quantity}

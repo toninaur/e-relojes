@@ -20,12 +20,17 @@ export default function FiltersDrawer({
 
   useEffect(() => {
     if (!open) return
-    const previous = document.body.style.overflow
+    // En iPhone no alcanza con el body: también el <html>, si no la página de
+    // atrás se sigue moviendo al deslizar dentro del panel.
+    const root = document.documentElement
+    const previous = [document.body.style.overflow, root.style.overflow]
     document.body.style.overflow = 'hidden'
+    root.style.overflow = 'hidden'
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
     window.addEventListener('keydown', onKey)
     return () => {
-      document.body.style.overflow = previous
+      document.body.style.overflow = previous[0]
+      root.style.overflow = previous[1]
       window.removeEventListener('keydown', onKey)
     }
   }, [open])
@@ -48,15 +53,15 @@ export default function FiltersDrawer({
         role={open ? 'dialog' : undefined}
         aria-modal={open ? true : undefined}
         aria-label="Filtros"
-        className={`${open ? 'fixed inset-0 z-[70] flex flex-col bg-paper' : 'hidden'} lg:static lg:block lg:bg-transparent`}
+        className={`${open ? 'fixed inset-x-0 top-0 h-dvh z-[70] flex flex-col bg-paper' : 'hidden'} lg:static lg:block lg:bg-transparent`}
       >
-        <div className="lg:hidden flex items-center justify-between px-5 h-16 border-b border-line bg-white">
+        <div className="lg:hidden flex items-center justify-between px-5 h-16 box-content pt-[env(safe-area-inset-top)] border-b border-line bg-white">
           <p className="font-display text-[1.4rem] font-semibold m-0">Filtros</p>
           <button type="button" onClick={() => setOpen(false)} aria-label="Cerrar filtros" className="p-1">
             <X className="w-6 h-6" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-5 lg:p-0 lg:overflow-visible">{children}</div>
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 lg:p-0 lg:overflow-visible">{children}</div>
         <div className="lg:hidden p-4 border-t border-line bg-white pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <button type="button" onClick={() => setOpen(false)} className="btn btn-dark w-full">
             Ver {resultCount} {resultCount === 1 ? 'resultado' : 'resultados'}

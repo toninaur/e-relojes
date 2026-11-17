@@ -5,6 +5,7 @@ import { CartProvider } from '@/lib/CartContext'
 import SiteHeader from '@/components/SiteHeader'
 import SiteFooter from '@/components/SiteFooter'
 import WhatsAppFloat from '@/components/WhatsAppFloat'
+import MotionEffects from '@/components/MotionEffects'
 import './globals.css'
 
 const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-fraunces', display: 'swap' })
@@ -16,6 +17,13 @@ export const metadata: Metadata = {
   description: brand.description,
   openGraph: { type: 'website', siteName: brand.legalName, locale: 'es_PY', images: ['/images/seiko-gmt.jpg'] },
   twitter: { card: 'summary_large_image' },
+  // iPhone: que Safari no convierta en links de llamada los números de la
+  // página (referencias, RUC, precios). El teléfono de contacto ya es un link
+  // a WhatsApp.
+  formatDetection: { telephone: false, address: false, email: false },
+  // Nombre corto al agregar la tienda a la pantalla de inicio del iPhone (el
+  // ícono es app/apple-icon.png).
+  appleWebApp: { title: brand.name },
   ...(brand.demo ? { robots: { index: false, follow: false } } : {}),
 }
 
@@ -41,6 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SiteFooter />
           <WhatsAppFloat />
         </CartProvider>
+        <MotionEffects />
       </body>
     </html>
   )

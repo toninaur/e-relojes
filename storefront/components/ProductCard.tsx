@@ -15,7 +15,8 @@ export default function ProductCard({ product }: { product: UiProduct }) {
   const waMessage = `${brand.whatsapp.greeting} Me interesa el ${name}${product.ref ? ` (ref. ${product.ref})` : ''} que vi en la web. ¿Está disponible?`
 
   return (
-    <article className="group bg-white border border-line rounded-[var(--radius-card)] overflow-hidden flex flex-col transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_14px_32px_rgb(0_0_0/0.08)] motion-reduce:transition-shadow motion-reduce:hover:translate-y-0">
+    // tilt-card: se levanta y se inclina hacia el mouse (globals.css + MotionEffects).
+    <article className="group tilt-card bg-white border border-line rounded-[var(--radius-card)] overflow-hidden flex flex-col">
       <Link href={href} className="relative block aspect-square bg-white border-b border-line overflow-hidden">
         {image ? (
           <StoreImage
@@ -31,7 +32,7 @@ export default function ProductCard({ product }: { product: UiProduct }) {
           </span>
         )}
         {product.originalPrice && (
-          <span className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-accent text-white text-[0.72rem] sm:text-[0.8rem] font-bold px-2.5 py-1 rounded-full">
+          <span className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-accent text-white text-[0.72rem] sm:text-[0.8rem] font-bold px-2.5 py-1 rounded-full shadow-[0_6px_14px_-4px_rgb(31_95_214/0.55)]">
             Oferta
           </span>
         )}
@@ -82,7 +83,8 @@ export default function ProductCard({ product }: { product: UiProduct }) {
 
 export function ProductGrid({ products }: { products: UiProduct[] }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(250px,1fr))] sm:gap-5">
+    // data-reveal-stagger: las tarjetas entran una tras otra al hacer scroll.
+    <div data-reveal-stagger className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(250px,1fr))] sm:gap-5">
       {products.map((p) => (
         <ProductCard key={p.id} product={p} />
       ))}
