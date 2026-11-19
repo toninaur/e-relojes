@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'reac
 
 // Panel → Aronium: el sincronizador con la caja del local, manejado desde acá.
 // - Controles: encender/apagar cada sentido, frecuencia, "Sincronizar todo ahora".
-// - Ventas web → Aronium: estado de cada pedido, Reintentar, "La cargué a mano".
+// - Pedidos web → Aronium: avisos, estado de cada pedido (proforma, venta), Reintentar, "La cargué a mano".
 // - Productos nuevos para completar y bitácora de eventos.
 // - Ayuda: cómo funciona, instalación (con la clave del conector) y qué hacer
 //   si algo anda mal.
@@ -16,7 +16,7 @@ type Change = {
   code: string
   product_id: string | null
   product_title: string | null
-  field: 'price' | 'stock' | 'created' | 'removed' | 'image' | 'content'
+  field: 'price' | 'stock' | 'created' | 'removed' | 'image' | 'content' | 'published' | 'hidden'
   old_value: string | null
   new_value: string | null
 }
@@ -32,6 +32,9 @@ type Run = {
   images_added: number
   error: string | null
   changes: Change[]
+  /** Total de cambios de la pasada (se mandan los primeros). */
+  changes_total?: number
+  content_updated?: number
 }
 type Agent = {
   last_seen_at: string | null
@@ -52,9 +55,12 @@ type Agent = {
 }
 type Status = {
   agent: Agent | null
-  drafts: { id: string; title: string; code: string; has_image: boolean; created_at: string; missing: string[] }[]
+  drafts: { id: string; title: string; code: string; has_image: boolean; stock?: number; created_at: string; missing: string[] }[]
+  drafts_count?: number
+  drafts_in_stock?: number
   runs: Run[]
   runs_count: number
+  web_sale_alerts?: WebSaleAlerts
 }
 type Settings = Partial<{ sync_paused: boolean; web_sales_paused: boolean; interval_minutes: number | null; full_requested: boolean }>
 
@@ -109,22 +115,32 @@ const AroniumPage = () => {
   return (
     <div className="flex flex-col gap-y-3">
       <ControlCard agent={status.agent} onChange={load} />
+      <WebSaleAlertsBanner alerts={status.web_sale_alerts} />
       <WebSalesCard />
 
       {status.drafts.length > 0 && (
         <Container className="divide-y p-0">
           <div className="px-6 py-4">
-            <Heading level="h2">Productos nuevos para completar ({status.drafts.length})</Heading>
+            <Heading level="h2">Productos nuevos para completar ({status.drafts_count ?? status.drafts.length})</Heading>
             <Text size="small" className="text-ui-fg-subtle">
               Llegaron de Aronium y están ocultos. Categoría, marca, tipo y filtros se completan solos cuando se pueden deducir; lo que falta se
-              carga en el producto ("Organizar" y "Filtros de la tienda") antes de publicarlo.
+              carga en el producto ("Organizar" y "Filtros de la tienda"). Se publican solos cuando tienen foto, categoría y stock (en la
+              próxima pasada, o hasta 30 minutos), salvo las mallas. Un producto que se queda sin stock se oculta y vuelve solo cuando tiene;
+              uno que se pasó a borrador a mano no se vuelve a publicar solo.
             </Text>
+            {status.drafts_count !== undefined && (
+              <Text size="small" className="text-ui-fg-subtle mt-1">
+                <b>{status.drafts_in_stock}</b> con stock en el local (primero en la lista) y {status.drafts_count - (status.drafts_in_stock ?? 0)} sin stock.
+                {status.drafts_count > status.drafts.length && ` Se muestran los primeros ${status.drafts.length}; el resto está en Productos, filtrando por estado "Borrador".`}
+              </Text>
+            )}
           </div>
           <Table>
             <Table.Header>
               <Table.Row>
                 <Table.HeaderCell>Producto</Table.HeaderCell>
                 <Table.HeaderCell>Código</Table.HeaderCell>
+                <Table.HeaderCell>Stock</Table.HeaderCell>
                 <Table.HeaderCell>Falta</Table.HeaderCell>
                 <Table.HeaderCell>Llegó</Table.HeaderCell>
               </Table.Row>
@@ -134,6 +150,7 @@ const AroniumPage = () => {
                 <Table.Row key={d.id} className="cursor-pointer" onClick={() => (window.location.href = `/app/products/${d.id}`)}>
                   <Table.Cell>{d.title}</Table.Cell>
                   <Table.Cell>{d.code}</Table.Cell>
+                  <Table.Cell>{d.stock ?? '—'}</Table.Cell>
                   <Table.Cell>
                     {d.missing.length === 0 ? (
                       <Badge color="green" size="2xsmall">Listo para publicar</Badge>
@@ -199,6 +216,11 @@ const AroniumPage = () => {
                             </li>
                           ))}
                         </ul>
+                        {(run.changes_total ?? 0) > run.changes.length && (
+                          <Text size="small" className="pb-2 text-ui-fg-subtle">
+                            … y {(run.changes_total ?? 0) - run.changes.length} más.
+                          </Text>
+                        )}
                       </td>
                     </Table.Row>
                   )}
@@ -389,15 +411,16 @@ const Toggle = ({
   </div>
 )
 
-// ---- Ventas web -------------------------------------------------------------
+// ---- Pedidos web ------------------------------------------------------------
 
 type WebSale = {
   id: string
   order_id: string
   display_id: number
-  status: 'pending' | 'registered' | 'failed' | 'cancel_pending' | 'cancelled' | 'skipped'
+  tracking_code: string
+  status: 'pending' | 'quoted' | 'invoiced' | 'failed' | 'cancel_pending' | 'cancelled' | 'skipped'
   paid: boolean
-  payment_registered: boolean
+  aronium_quote_number: string | null
   aronium_number: string | null
   aronium_refund_number: string | null
   last_error: string | null
@@ -408,7 +431,38 @@ type WebSale = {
   items: number
 }
 
-/** Ventas web → Aronium: cada pedido de la tienda y su estado en la caja. */
+type WebSaleAlerts = { agent_outdated: boolean; pending: number; quoted: number; failed: number; cancel_pending: number; warnings: number }
+
+/** Aviso arriba de todo: pedidos web que esperan algo del local. */
+const WebSaleAlertsBanner = ({ alerts }: { alerts?: WebSaleAlerts }) => {
+  if (!alerts) return null
+  const lines = [
+    alerts.agent_outdated &&
+      "El conector de la computadora del local es de una versión anterior y no registra pedidos web: actualizalo (copiá la carpeta connector nueva y corré install.ps1). Los pedidos esperan, no se pierden.",
+    alerts.quoted > 0 &&
+      `${alerts.quoted} ${alerts.quoted === 1 ? 'pedido web espera' : 'pedidos web esperan'} el pago: cuando el cliente pague, marcá la proforma "Pagado" en Aronium.`,
+    alerts.pending > 0 && `${alerts.pending} ${alerts.pending === 1 ? 'pedido nuevo todavía no llegó' : 'pedidos nuevos todavía no llegaron'} a Aronium.`,
+    alerts.failed > 0 && `${alerts.failed} con error: revisalos abajo.`,
+    alerts.cancel_pending > 0 && `${alerts.cancel_pending} cancelados en la tienda, falta anularlos en Aronium.`,
+    alerts.warnings > 0 && `${alerts.warnings} con avisos para revisar.`,
+  ].filter(Boolean) as string[]
+  if (!lines.length) return null
+  const urgent = alerts.agent_outdated || alerts.failed > 0 || alerts.warnings > 0
+  return (
+    <Container className={`px-6 py-4 ${urgent ? 'bg-ui-tag-orange-bg' : 'bg-ui-tag-blue-bg'}`}>
+      <Heading level="h2">Pedidos web</Heading>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+        {lines.map((l) => (
+          <li key={l}>
+            <Text size="small">{l}</Text>
+          </li>
+        ))}
+      </ul>
+    </Container>
+  )
+}
+
+/** Pedidos web → Aronium: cada pedido de la tienda y su estado en la caja. */
 const WebSalesCard = () => {
   const [data, setData] = useState<{ web_sales: WebSale[]; count: number } | null>(null)
   const [page, setPage] = useState(0)
@@ -425,12 +479,12 @@ const WebSalesCard = () => {
   }, [load])
 
   const act = async (id: string, action: 'retry' | 'skip') => {
-    if (action === 'skip' && !window.confirm('¿Ya la cobraste o cargaste en la caja de Aronium por tu cuenta? El sincronizador no la va a registrar.')) return
+    if (action === 'skip' && !window.confirm('¿Ya lo cargaste en Aronium por tu cuenta? El sincronizador no lo va a registrar.')) return
     setBusy(`${id}:${action}`)
     try {
       const res = await fetch(`/admin/aronium/web-sales/${id}/${action}`, { method: 'POST', credentials: 'include' })
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.message ?? `Error ${res.status}`)
-      toast.success(action === 'retry' ? 'Se vuelve a intentar en la próxima pasada del conector.' : 'Marcada como cargada a mano.')
+      toast.success(action === 'retry' ? 'Se vuelve a intentar en la próxima pasada del conector.' : 'Marcado como cargado a mano.')
       load()
     } catch (e) {
       toast.error(`No se pudo: ${(e as Error).message}`)
@@ -444,10 +498,12 @@ const WebSalesCard = () => {
   return (
     <Container className="divide-y p-0">
       <div className="px-6 py-4">
-        <Heading level="h2">Ventas web → Aronium</Heading>
+        <Heading level="h2">Pedidos web → Aronium</Heading>
         <Text size="small" className="text-ui-fg-subtle">
-          Cada pedido de la tienda se registra solo en Aronium como venta (número de pedido <b>WEB-…</b>), con el stock descontado, y aparece en
-          el historial de ventas de la caja. El pago se agrega cuando marcás el pedido como pagado; si lo cancelás, se registra la devolución.
+          Cada pedido de la tienda llega solo a Aronium como <b>proforma</b> "No pagado", con el código de seguimiento en la nota interna (
+          <b>Pedido web PW-…</b>). Cuando el cliente paga, marcá la proforma <b>"Pagado"</b> en Aronium: el sincronizador crea la venta, descuenta
+          el stock y marca el pedido como pagado en la tienda. Si cancelás el pedido, la proforma queda anulada (o se registra la devolución, si ya
+          era venta).
         </Text>
       </div>
       {data.web_sales.length === 0 ? (
@@ -460,7 +516,6 @@ const WebSalesCard = () => {
               <Table.HeaderCell>Cliente</Table.HeaderCell>
               <Table.HeaderCell>Total</Table.HeaderCell>
               <Table.HeaderCell>En Aronium</Table.HeaderCell>
-              <Table.HeaderCell>Pago</Table.HeaderCell>
               <Table.HeaderCell>Detalle</Table.HeaderCell>
             </Table.Row>
           </Table.Header>
@@ -471,6 +526,9 @@ const WebSalesCard = () => {
                   <a className="text-ui-fg-interactive" href={`/app/orders/${w.order_id}`}>
                     #{w.display_id}
                   </a>
+                  <Text size="xsmall" className="font-mono">
+                    {w.tracking_code}
+                  </Text>
                   <Text size="xsmall" className="text-ui-fg-subtle">
                     {formatDate(w.created_at)}
                   </Text>
@@ -479,17 +537,6 @@ const WebSalesCard = () => {
                 <Table.Cell>{w.total === null ? '—' : gs(String(w.total))}</Table.Cell>
                 <Table.Cell>
                   <WebSaleStatus sale={w} />
-                </Table.Cell>
-                <Table.Cell>
-                  {['cancelled', 'cancel_pending', 'skipped'].includes(w.status) ? (
-                    '—'
-                  ) : w.payment_registered ? (
-                    <Badge color="green" size="2xsmall">Pagado en Aronium</Badge>
-                  ) : w.paid ? (
-                    <Badge color="orange" size="2xsmall">Pagado, falta en Aronium</Badge>
-                  ) : (
-                    <Badge color="grey" size="2xsmall">Impago</Badge>
-                  )}
                 </Table.Cell>
                 <Table.Cell>
                   <div className="flex flex-col gap-y-1">
@@ -543,16 +590,44 @@ const WebSaleStatus = ({ sale }: { sale: WebSale }) => {
   switch (sale.status) {
     case 'pending':
       return <StatusBadge color="grey">Pendiente</StatusBadge>
-    case 'registered':
-      return <StatusBadge color="green">{sale.aronium_number ?? 'Registrada'}</StatusBadge>
+    case 'quoted':
+      return (
+        <div className="flex flex-col gap-y-0.5">
+          <StatusBadge color="orange">Proforma, esperando pago</StatusBadge>
+          {sale.aronium_quote_number && (
+            <Text size="xsmall" className="text-ui-fg-subtle">
+              {sale.aronium_quote_number}
+            </Text>
+          )}
+        </div>
+      )
+    case 'invoiced':
+      return (
+        <div className="flex flex-col gap-y-0.5">
+          <StatusBadge color="green">Vendido {sale.aronium_number ?? ''}</StatusBadge>
+          {sale.aronium_quote_number && (
+            <Text size="xsmall" className="text-ui-fg-subtle">
+              Proforma {sale.aronium_quote_number}
+            </Text>
+          )}
+        </div>
+      )
     case 'failed':
       return <StatusBadge color="red">Con error</StatusBadge>
     case 'cancel_pending':
-      return <StatusBadge color="orange">Cancelado, falta la devolución</StatusBadge>
+      return <StatusBadge color="orange">{sale.aronium_number ? 'Cancelado, falta la devolución' : 'Cancelado, falta anular la proforma'}</StatusBadge>
     case 'cancelled':
-      return <StatusBadge color="grey">{sale.aronium_refund_number ? `Cancelado (devolución ${sale.aronium_refund_number})` : 'Cancelado'}</StatusBadge>
+      return (
+        <StatusBadge color="grey">
+          {sale.aronium_refund_number
+            ? `Cancelado (devolución ${sale.aronium_refund_number})`
+            : sale.aronium_quote_number
+              ? 'Cancelado (proforma anulada)'
+              : 'Cancelado'}
+        </StatusBadge>
+      )
     case 'skipped':
-      return <StatusBadge color="blue">Cargada a mano</StatusBadge>
+      return <StatusBadge color="blue">Cargado a mano</StatusBadge>
   }
 }
 
@@ -574,15 +649,16 @@ const HelpCard = ({ agent, onChange }: { agent: Agent | null; onChange: () => vo
           un minuto.
         </li>
         <li>
-          <b>Tienda → Aronium.</b> Cada pedido de la tienda se registra solo en Aronium como una venta más (número de pedido WEB-…), a nombre del
-          usuario principal de la caja, con el stock descontado. Cuando marcás el pedido como pagado, se agrega el pago; si lo cancelás, se
-          registra la devolución.
+          <b>Tienda → Aronium.</b> Cada pedido de la tienda llega solo a Aronium como <b>proforma</b> "No pagado", con el cliente y la nota
+          interna "Pedido web PW-…" (el código de seguimiento). La proforma no descuenta stock; en la tienda el producto queda reservado.
         </li>
         <li>
           <b>El stock nunca se descuenta dos veces</b>, y el cliente de la tienda siempre ve lo que realmente hay.
         </li>
         <li>
-          <b>El local no hace nada distinto:</b> cobra en Aronium como siempre.
+          <b>Cuando el cliente paga</b>, marcá la proforma <b>"Pagado"</b> en Aronium. En menos de un minuto el conector crea la venta (con
+          el pago y el stock descontado), anota "Facturado" en la proforma y marca el pedido como pagado en la tienda. Si cancelás el pedido,
+          la proforma queda anulada.
         </li>
       </ul>
     </Section>
@@ -643,11 +719,14 @@ const HelpCard = ({ agent, onChange }: { agent: Agent | null; onChange: () => vo
 const TROUBLESHOOTING: [string, string][] = [
   ['"Sin conexión"', 'La computadora del local está apagada o sin internet. Al volver, el conector se pone al día solo; no se pierde nada.'],
   [
-    'Una venta web "Con error"',
-    'Leé el detalle: casi siempre es un producto que no tiene el mismo código en Aronium y en la tienda (SKU). Corregilo y tocá "Reintentar". Si ya la cobraste en la caja por tu cuenta, tocá "La cargué a mano".',
+    'Un pedido web "Con error"',
+    'Leé el detalle: casi siempre es un producto que no tiene el mismo código en Aronium y en la tienda (SKU). Corregilo y tocá "Reintentar". Si ya lo cargaste en Aronium por tu cuenta, tocá "La cargué a mano".',
   ],
-  ['"Pagado, falta en Aronium"', 'Falta la forma de pago en Aronium (por ejemplo "Transferencia"). Se crea sola al reinstalar el conector; el pago se agrega en la pasada siguiente.'],
-  ['Ventas web "No disponible"', 'Aronium se actualizó y cambió su base de datos. El stock y los precios se siguen copiando; para volver a registrar ventas web hay que actualizar el conector.'],
+  [
+    'Marqué la proforma "Pagado" y no pasa nada',
+    'Fijate que la proforma tenga en la nota interna "Pedido web PW-…": las proformas hechas a mano no se tocan. Si el pedido muestra un aviso, leelo: por ejemplo, falta la forma de pago en Aronium o la proforma se borró.',
+  ],
+  ['Ventas web "No disponible"', 'Aronium se actualizó y cambió su base de datos. El stock y los precios se siguen copiando; para volver a registrar pedidos web hay que actualizar el conector.'],
   ['Un producto no se actualiza', 'Revisá que tenga el mismo código en Aronium y en la tienda. Si cambiaste algo a mano en la ficha y querés lo de Aronium, usá "Tomar de Aronium".'],
   ['La clave dejó de andar', 'Generá una nueva acá ("Instalación") y pegala en config.json de la computadora del local.'],
 ]
@@ -729,10 +808,14 @@ const Fact = ({ label, value }: { label: string; value: string }) => (
 )
 
 function summary(run: Run) {
-  const content = run.changes.filter((c) => c.field === 'content').length
+  const content = run.content_updated ?? run.changes.filter((c) => c.field === 'content').length
+  const published = run.changes.filter((c) => c.field === 'published').length
+  const hidden = run.changes.filter((c) => c.field === 'hidden').length
   const modified = run.prices_updated + run.stock_updated + run.images_added + content
   const parts = [
     run.created && `${run.created} ${run.created === 1 ? 'alta' : 'altas'}`,
+    published && `${published} ${published === 1 ? 'publicado' : 'publicados'}`,
+    hidden && `${hidden} ${hidden === 1 ? 'oculto' : 'ocultos'} sin stock`,
     run.removed && `${run.removed} ${run.removed === 1 ? 'baja' : 'bajas'}`,
     modified && `${modified} ${modified === 1 ? 'modificación' : 'modificaciones'}`,
   ].filter(Boolean)
@@ -741,6 +824,8 @@ function summary(run: Run) {
 
 const EVENT: Record<Change['field'], { label: string; color: 'green' | 'red' | 'blue' }> = {
   created: { label: 'Alta', color: 'green' },
+  published: { label: 'Publicado', color: 'green' },
+  hidden: { label: 'Oculto', color: 'red' },
   removed: { label: 'Baja', color: 'red' },
   price: { label: 'Modificación', color: 'blue' },
   stock: { label: 'Modificación', color: 'blue' },
@@ -754,7 +839,7 @@ const EventBadge = ({ field }: { field: Change['field'] }) => (
   </Badge>
 )
 
-const FIELD_ORDER = { created: 0, removed: 1, price: 2, stock: 3, image: 4, content: 5 }
+const FIELD_ORDER = { created: 0, published: 1, hidden: 2, removed: 3, price: 4, stock: 5, image: 6, content: 7 }
 function sortChanges(changes: Change[]) {
   return [...changes].sort((a, b) => FIELD_ORDER[a.field] - FIELD_ORDER[b.field] || a.code.localeCompare(b.code))
 }
@@ -763,6 +848,10 @@ function describe(c: Change) {
   switch (c.field) {
     case 'created':
       return `producto nuevo en borrador (stock ${c.new_value})`
+    case 'published':
+      return 'publicado en la tienda (ya tiene foto, categoría y stock)'
+    case 'hidden':
+      return 'oculto: se quedó sin stock (vuelve solo cuando tenga)'
     case 'removed':
       return c.old_value === null || c.old_value === '0'
         ? 'borrado en Aronium (ya estaba sin stock)'

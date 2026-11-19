@@ -15,6 +15,26 @@ import { DatabaseSync } from 'node:sqlite'
  * }} AroniumProduct
  */
 
+/**
+ * Producto de Aronium por el código de la tienda (SKU): su código o, si no
+ * tiene código, uno de sus códigos de barras (ver readProducts).
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} code
+ * @param {string} [columns]
+ */
+export function productByCode(db, code, columns = 'p.Id') {
+  return (
+    db.prepare(`SELECT ${columns} FROM Product p WHERE p.Code = ? LIMIT 1`).get(code) ??
+    db
+      .prepare(
+        `SELECT ${columns} FROM Product p JOIN Barcode b ON b.ProductId = p.Id
+          WHERE trim(coalesce(p.Code, '')) = '' AND trim(b.Value) = ? ORDER BY b.Id LIMIT 1`
+      )
+      .get(code) ??
+    null
+  )
+}
+
 function open(dbPath) {
   // timeout: si la caja está grabando, espera hasta 5 s en vez de fallar.
   return new DatabaseSync(dbPath, { readOnly: true, timeout: 5000 })
@@ -48,17 +68,31 @@ export function readProducts(dbPath, options = {}) {
     // Códigos de barras (puede haber varios por producto).
     /** @type {Map<number, string[]>} */
     const barcodes = new Map()
-    for (const b of db.prepare('SELECT ProductId, Value FROM Barcode WHERE Value IS NOT NULL').all()) {
+    for (const b of db.prepare('SELECT ProductId, Value FROM Barcode WHERE Value IS NOT NULL ORDER BY Id').all()) {
       const value = String(b.Value).trim()
       if (!value) continue
       barcodes.set(Number(b.ProductId), [...(barcodes.get(Number(b.ProductId)) ?? []), value])
     }
 
+    // Sin código, el primer código de barras hace de código (el local no
+    // carga código en todos los productos). Salvo que sea el código de otro
+    // producto o el de barras de otro sin código: ahí no se sabe cuál es.
+    const codes = new Set(rows.map((r) => String(r.Code ?? '').trim()).filter(Boolean))
+    const fallbackUses = new Map()
+    for (const row of rows) {
+      const first = String(row.Code ?? '').trim() ? null : barcodes.get(Number(row.Id))?.[0]
+      if (first) fallbackUses.set(first, (fallbackUses.get(first) ?? 0) + 1)
+    }
+
     /** @type {AroniumProduct[]} */
     const products = []
     for (const row of rows) {
-      // Sin código no hay cómo unirlo con la tienda (el código es el SKU).
-      const code = String(row.Code ?? '').trim()
+      let code = String(row.Code ?? '').trim()
+      if (!code) {
+        const first = barcodes.get(Number(row.Id))?.[0]
+        if (first && !codes.has(first) && fallbackUses.get(first) === 1) code = first
+      }
+      // Sin código ni código de barras no hay cómo unirlo con la tienda.
       if (!code) continue
       const imageSize = Number(row.ImageSize) || 0
       products.push({
@@ -93,9 +127,8 @@ export function readImages(dbPath, codes) {
   if (!codes.length) return out
   const db = open(dbPath)
   try {
-    const stmt = db.prepare('SELECT Code, Image FROM Product WHERE Code = ?')
     for (const code of codes) {
-      const row = stmt.get(code)
+      const row = productByCode(db, code, 'p.Image AS Image')
       const image = row ? toImage(row.Image) : null
       if (image) out.set(code, image)
     }

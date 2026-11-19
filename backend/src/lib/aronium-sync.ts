@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { ARONIUM_MODULE } from '../modules/aronium'
 import { classify } from './aronium-classify'
 import { canWrite, parseAroniumContent, toMetadataValues, type SyncedField } from './aronium-content'
-import { webSaleStockAdjustments } from './aronium-web-sales'
+import { webSaleAlerts, webSaleStockAdjustments } from './aronium-web-sales'
 import type AroniumModuleService from '../modules/aronium/service'
 
 // Aronium → tienda (ver docs/sincronizador-aronium.md, punto 4.1).
@@ -33,6 +33,10 @@ import type AroniumModuleService from '../modules/aronium/service'
 //   categoría, marca y tipo. La foto se le pide después al agente
 //   (`images_wanted`), para no mandar fotos en cada pasada.
 // - Código borrado (o desactivado) en Aronium: baja, stock 0.
+// - Publicado y sin stock: se oculta, y vuelve solo cuando tiene stock (lo
+//   pidió el local). Borrador del conector con foto, categoría y stock: se
+//   publica solo, una vez. Lo que alguien ocultó a mano no se vuelve a
+//   publicar (`visibilityChange`).
 //
 // Bitácora (panel → Aronium): cada pasada que cambia algo, o que falla.
 
@@ -97,7 +101,7 @@ type ChangeInput = {
   code: string
   product_id?: string | null
   product_title?: string | null
-  field: 'price' | 'stock' | 'created' | 'removed' | 'image' | 'content'
+  field: 'price' | 'stock' | 'created' | 'removed' | 'image' | 'content' | 'published' | 'hidden'
   old_value?: string | null
   new_value?: string | null
 }
@@ -111,6 +115,7 @@ type ProductRow = {
   metadata?: Record<string, unknown> | null
   images?: { url: string }[] | null
   type?: { value?: string | null } | null
+  variants?: { id: string }[] | null
 }
 
 type VariantRow = {
@@ -130,6 +135,55 @@ type Synced = Partial<Record<SyncedField | 'image_hash' | 'image_url', string>>
 function syncedOf(product: ProductRow | null | undefined): Synced {
   const s = product?.metadata?.aronium_synced
   return s && typeof s === 'object' ? (s as Synced) : {}
+}
+
+// Tipos que el local no vende online (las mallas): no se publican solos; se
+// pueden publicar a mano.
+const NOT_AUTO_PUBLISHED_TYPES = new Set(['Malla de reloj'])
+const flagOn = (v: unknown) => v === true || v === 'true'
+const flagOff = (v: unknown) => v === false || v === 'false'
+
+/**
+ * Qué hacer con la visibilidad de un producto según su stock (la categoría,
+ * necesaria para publicar, se mira aparte: `withCategory`):
+ * - Publicado y sin stock: se oculta (`aronium_no_stock`). Solo productos de
+ *   una variante, como los de Aronium.
+ * - Oculto por falta de stock, y con stock y foto: se vuelve a publicar.
+ * - Borrador creado por el conector, con foto y stock: se publica, una sola
+ *   vez. `aronium_autopublish: false` marca los que ya estuvieron publicados
+ *   (por el conector, la importación del catálogo o a mano): si alguien los
+ *   oculta a mano, quedan ocultos.
+ */
+export function visibilityChange(product: ProductRow, stock: number): 'publish' | 'hide' | null {
+  const metadata = product.metadata ?? {}
+  if (product.status === ProductStatus.PUBLISHED) {
+    return stock <= 0 && (product.variants?.length ?? 1) === 1 ? 'hide' : null
+  }
+  if (product.status !== ProductStatus.DRAFT || stock <= 0 || !product.thumbnail) return null
+  if (flagOn(metadata.aronium_no_stock)) return 'publish'
+  if (!metadata.aronium_code || flagOff(metadata.aronium_autopublish)) return null
+  if (NOT_AUTO_PUBLISHED_TYPES.has(product.type?.value ?? '')) return null
+  return 'publish'
+}
+
+/** Ya publicado y todavía sin la marca: se le pone, para no republicarlo si lo ocultan a mano. */
+export function needsPublishedMark(product: ProductRow): boolean {
+  return product.status === ProductStatus.PUBLISHED && Boolean(product.metadata?.aronium_code) && !flagOff(product.metadata?.aronium_autopublish)
+}
+
+/** De estos productos, los que tienen categoría. */
+async function withCategory(container: MedusaContainer, ids: string[]): Promise<Set<string>> {
+  if (!ids.length) return new Set()
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const { data } = await query.graph({ entity: 'product', fields: ['id', 'categories.id'], filters: { id: ids } })
+  return new Set(data.filter((p) => (p.categories ?? []).length > 0).map((p) => p.id))
+}
+
+/** Stock de la variante en todos los locales. */
+function variantStock(variant: VariantRow): number {
+  let total = 0
+  for (const ii of variant.inventory_items ?? []) for (const l of ii.inventory?.location_levels ?? []) total += Number(l.stocked_quantity) || 0
+  return total
 }
 
 /** La foto actual la puso el conector (o el producto no tiene foto). */
@@ -215,7 +269,7 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
       content_updated: count('content'),
       unchanged: outcome.unchanged,
       images_wanted: outcome.imagesWanted,
-      refresh_codes: refreshCodes,
+      refresh_codes: [...new Set([...refreshCodes, ...outcome.postponed])],
       settings: { ...settings, full_requested: settings.full_requested && !input.full },
     }
   } catch (error) {
@@ -238,7 +292,7 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
 
   // El mismo código dos veces: vale el último.
   const items = [...new Map(input.map((i) => [i.code, i])).values()]
-  if (!items.length) return { changes, unchanged, imagesWanted: [] as string[] }
+  if (!items.length) return { changes, unchanged, imagesWanted: [] as string[], postponed: [] as string[] }
 
   const { data: stockLocations } = await query.graph({ entity: 'stock_location', fields: ['id'] })
   const locationId = stockLocations[0]?.id
@@ -256,7 +310,13 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
 
   const priceUpdates: { id: string; prices: { currency_code: string; amount: number }[] }[] = []
   const barcodeUpdates: { id: string; barcode: string | null }[] = []
-  const productUpdates = new Map<string, { id: string; description?: string; metadata: Record<string, unknown> }>()
+  type ProductPatch = { description?: string; status?: ProductStatus; metadata: Record<string, unknown> }
+  const productUpdates = new Map<string, ProductPatch & { id: string }>()
+  const queueProduct = (p: ProductRow, patch: ProductPatch) => {
+    const prev = productUpdates.get(p.id)
+    productUpdates.set(p.id, { ...prev, ...patch, id: p.id, metadata: { ...(prev?.metadata ?? p.metadata ?? {}), ...patch.metadata } })
+  }
+  const publishCandidates: { code: string; product: ProductRow }[] = []
   const levelCreates: { inventory_item_id: string; location_id: string; stocked_quantity: number }[] = []
   const levelUpdates: { id: string; inventory_item_id: string; location_id: string; stocked_quantity: number }[] = []
   const imagesWanted: string[] = []
@@ -268,6 +328,7 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
     // Venía activo y ahora está desactivado en Aronium: baja.
     const removed = !item.enabled && Boolean(known?.has(item.code))
     let changed = false
+    let stock: number | null = null
 
     const base = variant.price_set?.prices?.find((p) => !p.price_list_id && p.currency_code === CURRENCY)
     if (!base || Number(base.amount) !== item.price) {
@@ -280,7 +341,7 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
     const inventoryItem = variant.inventory_items?.[0]
     if (inventoryItem) {
       const adjust = adjustments.get(inventoryItem.inventory_item_id) ?? 0
-      const stock = item.enabled ? Math.max(0, Math.floor(item.stock) + adjust) : 0
+      stock = item.enabled ? Math.max(0, Math.floor(item.stock) + adjust) : 0
       const level = inventoryItem.inventory?.location_levels?.find((l) => l.location_id === locationId)
       const current = level ? Number(level.stocked_quantity) : null
       if (current !== stock) {
@@ -303,14 +364,14 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
     if (variant.product) {
       const p = variant.product
       const content = applyContent(item, variant, p)
-      if (content.productUpdate) {
-        const prev = productUpdates.get(p.id)
-        productUpdates.set(p.id, {
-          id: p.id,
-          ...(content.productUpdate.description !== undefined ? { description: content.productUpdate.description } : {}),
-          metadata: { ...(prev?.metadata ?? p.metadata ?? {}), ...content.productUpdate.metadata },
-        })
-      }
+      if (content.productUpdate) queueProduct(p, content.productUpdate)
+      const visibility = stock === null ? null : visibilityChange(p, stock)
+      if (visibility === 'publish') publishCandidates.push({ code: item.code, product: p })
+      else if (visibility === 'hide') {
+        queueProduct(p, { status: ProductStatus.DRAFT, metadata: { aronium_no_stock: true, aronium_autopublish: false } })
+        changes.push({ code: item.code, ...product, field: 'hidden' })
+        changed = true
+      } else if (needsPublishedMark(p)) queueProduct(p, { metadata: { aronium_autopublish: false } })
       if (content.barcode !== undefined) barcodeUpdates.push({ id: variant.id, barcode: content.barcode })
       if (content.fields.length) {
         changes.push({ code: item.code, ...product, field: 'content', new_value: content.fields.join(', ') })
@@ -341,6 +402,9 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
       old_value: current === null ? null : String(current),
       new_value: '0',
     })
+    if (variant.product && visibilityChange(variant.product, 0) === 'hide') {
+      queueProduct(variant.product, { status: ProductStatus.DRAFT, metadata: { aronium_no_stock: true, aronium_autopublish: false } })
+    }
   }
 
   if (priceUpdates.length || barcodeUpdates.length) {
@@ -350,11 +414,23 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
     for (const u of barcodeUpdates) byId.set(u.id, { ...(byId.get(u.id) ?? {}), ...u })
     await updateProductVariantsWorkflow(container).run({ input: { product_variants: [...byId.values()] as any } })
   }
+  const ready = await withCategory(container, publishCandidates.map((c) => c.product.id))
+  for (const { code, product } of publishCandidates) {
+    if (!ready.has(product.id)) continue
+    queueProduct(product, { status: ProductStatus.PUBLISHED, metadata: { aronium_autopublish: false, aronium_no_stock: false } })
+    changes.push({ code, product_id: product.id, product_title: product.title, field: 'published' })
+  }
+
   if (productUpdates.size) {
     await updateProductsWorkflow(container).run({ input: { products: [...productUpdates.values()] } })
   }
 
-  const missing = items.filter((i) => !bySku.has(i.code) && i.enabled)
+  // Altas de a MAX_CREATE_PER_PASS: la primera pasada con todo el catálogo
+  // (miles) no entra en el tiempo de una respuesta. Las que esperan vuelven en
+  // refresh_codes y el agente las manda en la pasada siguiente.
+  const allMissing = items.filter((i) => !bySku.has(i.code) && i.enabled)
+  const missing = allMissing.slice(0, MAX_CREATE_PER_PASS)
+  const postponed = allMissing.slice(MAX_CREATE_PER_PASS).map((i) => i.code)
   if (missing.length) {
     const created = await createDraftProducts(container, missing)
     for (const c of created) {
@@ -370,7 +446,7 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
     await batchInventoryItemLevelsWorkflow(container).run({ input: { create: levelCreates, update: levelUpdates, delete: [] } })
   }
 
-  return { changes, unchanged, imagesWanted }
+  return { changes, unchanged, imagesWanted, postponed }
 }
 
 /**
@@ -452,10 +528,16 @@ export async function attachAroniumImages(container: MedusaContainer, input: z.i
   const aronium: AroniumModuleService = container.resolve(ARONIUM_MODULE)
   const variants = await findVariants(container, input.items.map((i) => i.code))
   const targets = input.items.flatMap((item) => {
-    const product = variants.find((v) => v.sku === item.code)?.product
-    return product && imageIsOurs(product) ? [{ item, product }] : []
+    const variant = variants.find((v) => v.sku === item.code)
+    const product = variant?.product
+    return variant && product && imageIsOurs(product) ? [{ item, product, stock: variantStock(variant) }] : []
   })
   if (!targets.length) return { images_added: 0 }
+  // Con la foto, los borradores con categoría y stock ya se pueden publicar.
+  const ready = await withCategory(
+    container,
+    targets.filter(({ product, stock }) => visibilityChange({ ...product, thumbnail: 'foto' }, stock) === 'publish').map(({ product }) => product.id)
+  )
 
   const { result: files } = await uploadFilesWorkflow(container).run({
     input: {
@@ -476,25 +558,36 @@ export async function attachAroniumImages(container: MedusaContainer, input: z.i
     const old = product.thumbnail
     const others = (product.images ?? []).map((i) => i.url).filter((u) => u !== old)
     const synced = { ...syncedOf(product), image_url: url, image_hash: item.image_hash ?? '' }
+    const publish = ready.has(product.id)
     return [
       {
         id: product.id,
         images: [{ url }, ...others.map((u) => ({ url: u }))],
         thumbnail: url,
-        metadata: { ...(product.metadata ?? {}), aronium_synced: synced },
+        ...(publish ? { status: ProductStatus.PUBLISHED } : {}),
+        metadata: {
+          ...(product.metadata ?? {}),
+          aronium_synced: synced,
+          ...(publish ? { aronium_autopublish: false, aronium_no_stock: false } : {}),
+        },
       },
     ]
   })
   if (updates.length) {
     await updateProductsWorkflow(container).run({ input: { products: updates } })
+    const done = targets.filter(({ product }) => updates.some((u) => u.id === product.id))
+    const change = (item: { code: string }, product: ProductRow, field: 'image' | 'published') => ({
+      code: item.code,
+      product_id: product.id,
+      product_title: product.title,
+      field,
+    })
     await recordRun(
       aronium,
-      targets.slice(0, updates.length).map(({ item, product }) => ({
-        code: item.code,
-        product_id: product.id,
-        product_title: product.title,
-        field: 'image' as const,
-      })),
+      [
+        ...done.map(({ item, product }) => change(item, product, 'image')),
+        ...done.filter(({ product }) => ready.has(product.id)).map(({ item, product }) => change(item, product, 'published')),
+      ],
       { items_received: input.items.length, duration_ms: Date.now() - started }
     )
   }
@@ -562,11 +655,30 @@ export async function getAroniumStatus(container: MedusaContainer, { limit = 20,
   // Borradores creados por el conector, para que los completen y publiquen.
   const { data: drafts } = await query.graph({
     entity: 'product',
-    fields: ['id', 'title', 'thumbnail', 'created_at', 'metadata', 'categories.id', 'collection_id', 'type.value'],
+    fields: [
+      'id',
+      'title',
+      'thumbnail',
+      'created_at',
+      'metadata',
+      'collection_id',
+      'type.value',
+      'variants.inventory_items.inventory.location_levels.stocked_quantity',
+    ],
     filters: { status: ProductStatus.DRAFT },
   })
 
+  const aroniumDrafts = drafts.filter((p) => p.metadata?.aronium_code)
+  // Qué borradores tienen categoría, leído desde las categorías: pedir
+  // categories.id de miles de productos tarda segundos.
+  const { data: categoryRows } = await query.graph({ entity: 'product_category', fields: ['id', 'products.id'] })
+  const categorized = new Set(categoryRows.flatMap((c) => (c.products ?? []).map((p) => p?.id)))
+
+  // Pedidos web que esperan algo: el aviso del panel.
+  const web_sale_alerts = await webSaleAlerts(container)
+
   return {
+    web_sale_alerts,
     agent: agent
       ? {
           ...agent,
@@ -576,17 +688,23 @@ export async function getAroniumStatus(container: MedusaContainer, { limit = 20,
           has_token: Boolean(agent.token_hash),
         }
       : null,
-    drafts: drafts
-      .filter((p) => p.metadata?.aronium_code)
+    // Con todo el catálogo de Aronium son miles: el panel muestra los primeros
+    // DRAFTS_SHOWN, con stock primero (los que conviene publicar ya).
+    drafts_count: aroniumDrafts.length,
+    drafts_in_stock: aroniumDrafts.filter((p) => draftStock(p) > 0).length,
+    drafts: aroniumDrafts
+      .sort((a, b) => Number(draftStock(b) > 0) - Number(draftStock(a) > 0) || String(a.title).localeCompare(String(b.title)))
+      .slice(0, DRAFTS_SHOWN)
       .map((p) => ({
         id: p.id,
         title: p.title,
         code: String(p.metadata!.aronium_code),
         has_image: Boolean(p.thumbnail),
+        stock: draftStock(p),
         created_at: p.created_at,
         // Lo que falta para publicarlo bien (el catálogo filtra por esto).
         missing: [
-          !p.categories?.length && 'categoría',
+          !categorized.has(p.id) && 'categoría',
           !p.collection_id && 'marca',
           !p.type && 'tipo',
           // El color no aplica a perfumes ni decants.
@@ -594,7 +712,17 @@ export async function getAroniumStatus(container: MedusaContainer, { limit = 20,
           !p.thumbnail && 'foto',
         ].filter((x): x is string => Boolean(x)),
       })),
-    runs,
+    // La primera pasada con todo el catálogo trae miles de altas: se mandan
+    // las primeras CHANGES_SHOWN de cada pasada (el resumen usa los totales).
+    runs: runs.map((run) => {
+      const changes = [...(run.changes ?? [])].sort((a, b) => (CHANGE_ORDER[a.field] ?? 9) - (CHANGE_ORDER[b.field] ?? 9) || String(a.code).localeCompare(String(b.code)))
+      return {
+        ...run,
+        changes: changes.slice(0, CHANGES_SHOWN),
+        changes_total: changes.length,
+        content_updated: changes.filter((c) => c.field === 'content').length,
+      }
+    }),
     runs_count: runsCount,
   }
 }
@@ -667,6 +795,7 @@ async function findVariants(container: MedusaContainer, skus: string[]): Promise
         'product.metadata',
         'product.images.url',
         'product.type.value',
+        'product.variants.id',
         'price_set.prices.amount',
         'price_set.prices.currency_code',
         'price_set.prices.price_list_id',
@@ -778,6 +907,20 @@ function normalize(text: string) {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
 }
 
+export const MAX_CREATE_PER_PASS = 250
+const DRAFTS_SHOWN = 100
+const CHANGES_SHOWN = 200
+const CHANGE_ORDER: Record<string, number> = { created: 0, published: 1, hidden: 2, removed: 3, price: 4, stock: 5, image: 6, content: 7 }
+
+function draftStock(p: { variants?: unknown }): number {
+  let total = 0
+  type Variant = { inventory_items?: { inventory?: { location_levels?: { stocked_quantity?: unknown }[] | null } | null }[] | null }
+  for (const v of (p.variants ?? []) as Variant[]) for (const ii of v.inventory_items ?? []) for (const l of ii.inventory?.location_levels ?? []) total += Number(l.stocked_quantity) || 0
+  return total
+}
+
 function slugify(text: string) {
-  return normalize(text).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80)
+  // Cortar después de limpiar los guiones de las puntas dejaba un guion al final
+  // ("…-ltp-v007d-"), que Medusa rechaza.
+  return normalize(text).replace(/[^a-z0-9]+/g, '-').slice(0, 80).replace(/^-+|-+$/g, '')
 }

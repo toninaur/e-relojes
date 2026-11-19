@@ -3,3 +3,5 @@ connector.log*
 state.json
 state.json.tmp
 backups/
+avisos.json
+avisos.json.tmp

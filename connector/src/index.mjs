@@ -1,6 +1,7 @@
 import os from 'node:os'
 import { readImages, readProducts } from './aronium.mjs'
 import { createApi } from './api.mjs'
+import { pendingEntry, writeAlerts } from './alerts.mjs'
 import { backupIfNeeded } from './backup.mjs'
 import { loadConfig } from './config.mjs'
 import { errorMessage, log } from './log.mjs'
@@ -11,11 +12,12 @@ import { AroniumDataError, createWriter, isTransient } from './write.mjs'
 // Sincronizador Aronium Lite ↔ tienda online (docs/sincronizador-aronium.md).
 //
 // Cada `intervalMinutes` (1 por defecto), en este orden:
-// 1. Manda a la tienda los resultados que quedaron pendientes (ventas ya
-//    escritas en Aronium cuando se cortó la conexión).
-// 2. Ventas web → Aronium: trae de la tienda los pedidos nuevos, los pagos y
-//    las cancelaciones, y los escribe en Aronium (write.mjs). Antes de la
-//    primera escritura del día, copia de respaldo de pos.db (backup.mjs).
+// 1. Manda a la tienda los resultados que quedaron pendientes (proformas o
+//    ventas ya escritas en Aronium cuando se cortó la conexión).
+// 2. Pedidos web → Aronium: trae de la tienda los pedidos nuevos (proforma),
+//    las proformas abiertas (si la cajera las marcó "Pagado", crea la venta)
+//    y las cancelaciones (write.mjs). Antes de la primera escritura del día,
+//    copia de respaldo de pos.db (backup.mjs).
 // 3. Aronium → tienda: lee productos, precios y stock y manda lo que cambió
 //    (todo cada FULL_EVERY_MINUTES, al arrancar o si desaparece un código).
 //    Va después de 2: así, cuando el stock de Aronium ya tiene restada una
@@ -26,7 +28,7 @@ import { AroniumDataError, createWriter, isTransient } from './write.mjs'
 //   node src/index.mjs          corre en bucle (lo que usa la tarea programada)
 //   node src/index.mjs --once   una sola pasada completa y termina
 
-const VERSION = '0.6.0'
+const VERSION = '0.8.0'
 const FULL_EVERY_MINUTES = 30
 const IMAGE_BATCH_SIZE = 10
 
@@ -41,6 +43,10 @@ let forceCodes = new Set()
 let intervalMinutes = config.intervalMinutes
 let fullRequested = false
 let wasPaused = false
+// Último error informado por pedido: una proforma borrada falla en cada pasada
+// y no hace falta repetirle lo mismo a la tienda. (Arriba del ciclo principal:
+// lo que se declara después no existe todavía cuando corre la primera pasada.)
+const lastReported = new Map()
 
 // Escribir ventas: solo si la base de Aronium es una versión conocida.
 const schema = checkSchemaSafe()
@@ -58,12 +64,12 @@ const agent = {
         ? null
         : schema.reason,
 }
-if (agent.write_blocked_reason) log(`Ventas web desactivadas: ${agent.write_blocked_reason}`)
+if (agent.write_blocked_reason) log(`Pedidos web desactivados: ${agent.write_blocked_reason}`)
 
 if (process.argv.includes('--once')) {
   process.exitCode = (await pass({ forceFull: true })) ? 0 : 1
 } else {
-  log(`Agente ${VERSION} iniciado: ${config.storeUrl}, cada ${config.intervalMinutes} min${writeEnabled ? ', con ventas web' : ''}`)
+  log(`Agente ${VERSION} iniciado: ${config.storeUrl}, cada ${config.intervalMinutes} min${writeEnabled ? ', con pedidos web' : ''}`)
   for (;;) {
     await pass()
     await new Promise((r) => setTimeout(r, intervalMinutes * 60 * 1000))
@@ -110,41 +116,79 @@ async function flushResults() {
   }
 }
 
-// ---- 2. Ventas web → Aronium -----------------------------------------------
+// ---- 2. Pedidos web → Aronium ----------------------------------------------
 
 async function webSales() {
   const { work } = await api.webSalesWork()
-  if (!work.length) return
-  for (const job of work) {
-    // Copia de respaldo del día antes de la primera escritura.
-    const backup = backupIfNeeded(config, state)
-    if (backup) log(`Copia de respaldo de Aronium: ${backup}`)
+  // Para el programa de avisos de la PC (avisos.json): proformas que esperan
+  // que la cajera las marque "Pagado", y pedidos con error.
+  const alerts = { pending: [], errors: [] }
+  try {
+    await doWebSales(work, alerts)
+  } finally {
+    writeAlerts(alerts)
+  }
+}
 
-    const label = `Pedido web #${job.payload?.display_id ?? job.id}`
+async function doWebSales(work, alerts) {
+  for (const job of work) {
+    const code = job.tracking_code
+    const label = `Pedido web #${job.payload?.display_id ?? job.id} (${code})`
     try {
-      let result
-      if (job.action === 'register') {
-        result = { action: 'register', ...writer.registerSale(job.payload, { paid: job.paid }) }
-        log(`${label}: registrado en Aronium como ${result.aronium_number}${result.payment_registered ? ' (pagado)' : ' (impago)'}${result.warning ? `. Aviso: ${result.warning}` : ''}`)
-      } else if (job.action === 'payment') {
-        result = { action: 'payment', ...writer.addPayment(job.aronium_number, job.payload) }
-        log(`${label}: pago agregado a ${job.aronium_number}`)
+      let result = null
+      if (job.action === 'watch') {
+        // Lectura: ¿la cajera marcó la proforma "Pagado"?
+        const st = writer.quoteStatus(job.aronium_quote_number, code)
+        if (st.exists && !st.paid && !st.invoiced) {
+          lastReported.delete(job.id)
+          alerts.pending.push(pendingEntry(job, st.number))
+          continue
+        }
+        backup()
+        // Pagada (o la venta ya existe, o la proforma desapareció → error).
+        result = { action: 'invoice', ...writer.invoiceQuote(job.aronium_quote_number, job.payload, code) }
+        log(`${label}: proforma ${job.aronium_quote_number} marcada "Pagado" → venta ${result.aronium_number}${result.warning ? `. Aviso: ${result.warning}` : ''}`)
+      } else if (job.action === 'quote') {
+        backup()
+        result = { action: 'quote', ...writer.writeQuote(job.payload, code) }
+        alerts.pending.push(pendingEntry(job, result.quote_number))
+        log(`${label}: proforma ${result.quote_number} en Aronium (No pagado)${result.warning ? `. Aviso: ${result.warning}` : ''}`)
+      } else if (job.action === 'cancel') {
+        backup()
+        if (job.aronium_number) {
+          result = { action: 'cancel', ...writer.cancelSale(job.aronium_number, job.payload) }
+          log(`${label}: devolución ${result.refund_number} de ${job.aronium_number}`)
+        } else {
+          result = { action: 'cancel', ...writer.voidQuote(job.aronium_quote_number, job.payload, code) }
+          log(`${label}: proforma ${job.aronium_quote_number ?? ''} anulada${result.warning ? `. Aviso: ${result.warning}` : ''}`)
+        }
       } else {
-        result = { action: 'cancel', ...writer.cancelSale(job.aronium_number, job.payload) }
-        log(`${label}: devolución ${result.refund_number} de ${job.aronium_number}`)
+        continue
       }
+      lastReported.delete(job.id)
       await report(job.id, result)
     } catch (error) {
       if (isTransient(error)) {
         // La caja estaba grabando: se reintenta en la pasada siguiente.
         log(`${label}: Aronium ocupado, se reintenta`)
+        if (job.action === 'watch') alerts.pending.push(pendingEntry(job))
         continue
       }
       const message = error instanceof AroniumDataError ? error.message : `Error al escribir en Aronium: ${errorMessage(error)}`
+      alerts.errors.push({ code, number: job.payload?.display_id ?? null, message })
+      if (lastReported.get(job.id) === message) continue
+      lastReported.set(job.id, message)
       log(`ERROR ${label}: ${message}`)
-      await report(job.id, { action: job.action, ok: false, error: message })
+      const action = job.action === 'watch' ? 'invoice' : job.action
+      await report(job.id, { action, ok: false, error: message })
     }
   }
+}
+
+/** Copia de respaldo del día antes de la primera escritura. */
+function backup() {
+  const file = backupIfNeeded(config, state)
+  if (file) log(`Copia de respaldo de Aronium: ${file}`)
 }
 
 // ---- 3 y 4. Aronium → tienda -------------------------------------------------

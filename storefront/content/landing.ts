@@ -7,12 +7,12 @@ import { brand } from '@/lib/brand'
 export const landing = {
   hero: {
     title: 'Relojes de las marcas que conocés, con envíos a todo el país',
-    text: 'Tissot, Seiko, Citizen, Casio, Invicta y muchas más. Además, perfumes, joyas y accesorios. Comprá online, visitanos en Asunción o escribinos por WhatsApp.',
+    text: 'Tissot, Seiko, Citizen, Casio, Invicta y muchas más. Además, lentes de sol, bolsos, joyas, perfumes y ropa de marca. Comprá online, visitanos en Asunción o escribinos por WhatsApp.',
     image: '/images/seiko-gmt.jpg',
     imageAlt: 'Reloj Seiko 5 Sports GMT con bisel azul y negro',
   },
   facts: [
-    { title: 'Cientos de modelos', text: 'Caballeros, damas y Casio' },
+    { title: 'Cientos de modelos', text: 'Relojes, lentes, bolsos y más' },
     { title: 'Envíos a todo el país', text: 'Por encomienda' },
     { title: 'Local en Asunción', text: 'Barrio Mburicao' },
     // Puntaje y cantidad de reseñas: se cambian en lib/brand.ts (un solo lugar).
@@ -51,14 +51,15 @@ export const landing = {
     // Descripción por nombre de categoría de Medusa. Las que no estén acá
     // aparecen igual, sin descripción.
     descriptions: {
-      Caballeros: 'Tissot, Seiko, Citizen, Armani, Tommy Hilfiger, Invicta y opciones económicas.',
-      Damas: 'Tissot, Michael Kors, Fossil, Guess, Timex, Casio y más.',
+      Caballeros: 'Tissot, Seiko, Citizen, Invicta, Tommy Hilfiger y opciones económicas como Curren y Skmei.',
+      Damas: 'Tissot, Michael Kors, Fossil, Guess, Casio, Swarovski, carteras y mochilas Fiore.',
       Casio: 'Edifice, G-Shock, Baby-G y los clásicos de Casio.',
       'Perfumes y decants': 'Árabes y de diseñador, en frasco, en decants o en combos.',
       'Lentes de sol': 'Ray-Ban, Lacoste, Calvin Klein, Polaroid, Guess y más.',
       'Joyas y pulseras': 'Swarovski, Michael Kors, pulseras y brazaletes.',
       'Bolsos y billeteras': 'Mochilas, carteras, billeteras, cintos y necessaires.',
-      'Organizadores y accesorios': 'Organizadores de relojes y anteojos, botellas Spartan y herramientas.',
+      'Organizadores y accesorios': 'Organizadores de relojes y anteojos, mallas de reloj y botellas Spartan.',
+      Ropa: 'Remeras, corbatas y ropa interior de Tommy Hilfiger, Nautica y Calvin Klein.',
     } as Record<string, string>,
   },
   more: {
@@ -68,8 +69,8 @@ export const landing = {
       // `category`: handle de la categoría a la que lleva la tarjeta.
       { title: 'Joyas Swarovski', text: 'Collares, aros y broches con cristales Swarovski.', image: '/images/swarovski-signum.jpg', alt: 'Collar Swarovski con colgante de cisne', category: 'joyas-y-pulseras' },
       { title: 'Lentes de sol', text: 'Ray-Ban, Lacoste, Calvin Klein y más.', image: '/images/rayban-clubmaster.jpg', alt: 'Lentes de sol Ray-Ban Clubmaster', category: 'lentes-de-sol' },
-      { title: 'Botellas y vasos', text: 'Spartan, térmicos, en varios colores.', icon: 'thermos' as const, category: 'organizadores-y-accesorios' },
-      { title: 'Bolsos y billeteras', text: 'Mochilas, carteras, billeteras y cintos.', icon: 'organizer' as const, category: 'bolsos-y-billeteras' },
+      { title: 'Bolsos y billeteras', text: 'Mochilas y carteras Fiore, billeteras, cintos y necessaires.', image: '/images/fiore-mochila.jpg', alt: 'Mochila Fiore negra con cadena', category: 'bolsos-y-billeteras' },
+      { title: 'Ropa de marca', text: 'Remeras, corbatas y más de Tommy Hilfiger, Nautica y Calvin Klein.', icon: 'shirt' as const, category: 'ropa' },
     ],
   },
   howToBuy: {
@@ -78,12 +79,12 @@ export const landing = {
     steps: [
       {
         title: 'Comprá online',
-        points: ['Elegí tus productos en el catálogo y agregalos al carrito.', 'Envío a domicilio o retiro en el local.', 'Pagá por transferencia o en efectivo al recibir.'],
+        points: ['Elegí tus productos en el catálogo y agregalos al carrito.', 'Delivery en Gran Asunción, encomienda al interior o retiro en el local.', 'Pagá por transferencia o, con delivery, en efectivo al recibir.'],
         cta: { label: 'Ver catálogo', href: '/catalogo', style: 'dark' as const },
       },
       {
         title: 'Pedí por WhatsApp',
-        points: ['Delivery con costo según la zona.', 'Envíos por encomienda a todo el país.', 'Te asesoramos para elegir.'],
+        points: ['Delivery en Gran Asunción desde Gs. 10.000, según la ciudad.', 'Envíos por encomienda a todo el país.', 'Te asesoramos para elegir.'],
         cta: { label: 'Escribinos', href: 'whatsapp', style: 'outline' as const },
       },
       {

@@ -1,0 +1,13 @@
+{
+  "name": "catalog-pdf",
+  "private": true,
+  "description": "Extrae fotos y datos de los catálogos PDF del local (una página = un producto)",
+  "type": "module",
+  "scripts": {
+    "extract": "node extract.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "4.10.38",
+    "sharp": "0.33.5"
+  }
+}

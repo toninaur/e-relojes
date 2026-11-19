@@ -1,26 +1,40 @@
 import { DatabaseSync } from 'node:sqlite'
+import { productByCode } from './aronium.mjs'
 
-// Escritura de ventas web en Aronium (docs/sincronizador-aronium.md, 4.2).
+// Escritura de pedidos web en Aronium (docs/sincronizador-aronium.md, 4.2).
 //
-// Escribe exactamente lo que escribe la caja al cobrar (estudiado en pos.db,
-// Aronium Lite 1.52): Document (tipo 200, número siguiente del año), un
-// DocumentItem por producto, DocumentItemTax con el impuesto de cada
-// producto, Payment si está pagada, Stock (resta) y Counter (numeración).
-// Todo en una transacción: entra la venta completa o nada. Antes se fija si
-// ya existe una venta con ese número de pedido (WEB-123): nunca la duplica.
+// Ciclo de un pedido web:
+// 1. writeQuote: PROFORMA (tipo 230) "No pagado" (PaidStatus 1), con el
+//    cliente, los renglones y la nota interna "Pedido web PW-1042-K7". No
+//    mueve stock. Aronium crea las proformas como "Pagado" por defecto: acá se
+//    fija 1 explícitamente.
+// 2. La cajera marca la proforma "Pagado" en Aronium (PaidStatus 2; Aronium no
+//    crea ningún pago ni toca el stock). quoteStatus lo detecta.
+// 3. invoiceQuote: VENTA (tipo 200) con los renglones de la proforma, el pago
+//    y el stock descontado; la proforma queda anotada "Facturado 26-200-…".
+// Cancelado en la tienda: voidQuote anota ANULADO en la proforma; si ya era
+// venta, cancelSale escribe la devolución (tipo 220).
 //
-// Las devoluciones (pedido cancelado en la tienda después de estar en
-// Aronium) son un documento tipo 220 que devuelve el stock y hace referencia
-// a la venta.
+// Escribe exactamente lo que escribe la caja (estudiado en pos.db, Aronium Lite
+// 1.52). Cada paso en una transacción: entra completo o nada. Antes de escribir
+// se busca el código PW- en el número de orden: nunca se duplica.
 //
 // Errores:
 // - AroniumDataError: algo que hay que resolver (un código que no existe en
-//   Aronium, la venta no está). Se informa al panel.
+//   Aronium, la proforma se borró). Se informa al panel.
 // - Base ocupada (la caja está grabando): se reintenta en la pasada
 //   siguiente sin informar nada (isTransient).
 
+/** Para comparar nombres: sin tildes, mayúsculas ni espacios de más. */
+const fold = (text) => String(text ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/\s+/g, ' ').trim().toLowerCase()
+
+const QUOTE = '230'
 const SALE = '200'
 const REFUND = '220'
+
+// Document.PaidStatus (verificado en Aronium el 18/11/2026).
+export const PAID = 2
+export const UNPAID = 1
 
 export class AroniumDataError extends Error {}
 
@@ -39,15 +53,22 @@ function stamp(d = new Date()) {
 function day(d = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} 00:00:00`
 }
+/** "18/11/2026 14:05", para las notas. */
+function human(d = new Date()) {
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 // 4 decimales, como Aronium (318181,8182): así sus reportes de IVA cuadran.
 const money = (n) => Math.round(n * 10000) / 10000
+// Las notas de Aronium (cuadro de texto de Windows) usan \r\n.
+const lines = (...parts) => parts.filter(Boolean).join('\r\n')
+const PAYMENT_NAMES = { bank_transfer: 'Transferencia', cash_on_delivery: 'Efectivo al recibir' }
 
 export function createWriter(config) {
   const web = config.webSales
 
-  function open() {
+  function open(readOnly = false) {
     // timeout: si la caja está grabando, espera hasta 5 s.
-    return new DatabaseSync(config.aroniumDb, { timeout: 5000 })
+    return new DatabaseSync(config.aroniumDb, { timeout: 5000, readOnly })
   }
 
   function transaction(fn) {
@@ -100,10 +121,9 @@ export function createWriter(config) {
   }
 
   /**
-   * Usuario de Aronium que figura en la venta web. El historial de ventas de
-   * Aronium muestra solo las ventas del usuario con la sesión abierta, así que
-   * por defecto es el usuario principal (el activo con más permisos): sus
-   * ventas web aparecen en el historial de quien maneja la caja. Con
+   * Usuario de Aronium que figura en la proforma y la venta. El historial de
+   * Aronium muestra solo los documentos del usuario con la sesión abierta, así
+   * que por defecto es el usuario principal (el activo con más permisos). Con
    * webSales.userName se elige otro.
    */
   function findUser(db, warnings) {
@@ -119,41 +139,90 @@ export function createWriter(config) {
         )
         .get(name, name, name)
       if (row) return row.Id
-      warnings.push(`No existe el usuario "${web.userName}" en Aronium: la venta quedó a nombre del usuario principal.`)
+      warnings.push(`No existe el usuario "${web.userName}" en Aronium: quedó a nombre del usuario principal.`)
     }
     const user = main()
     if (!user) throw new AroniumDataError('Aronium no tiene usuarios activos.')
     return user.Id
   }
 
-  function findCustomer(db, payload) {
-    const c = payload.customer ?? {}
-    const ruc = (c.ruc ?? '').replace(/\s+/g, '')
-    if (ruc) {
-      // Con RUC: el cliente de Aronium con ese RUC (para la factura), o uno nuevo.
-      const found = db.prepare("SELECT Id FROM Customer WHERE replace(coalesce(TaxNumber,''),' ','') = ? ORDER BY Id LIMIT 1").get(ruc)
-      if (found) return found.Id
-      const now = stamp()
-      const res = db
-        .prepare(
-          `INSERT INTO Customer (Name, TaxNumber, PhoneNumber, Email, DateCreated, DateUpdated, IsEnabled, IsCustomer, IsSupplier)
-           VALUES (?, ?, ?, ?, ?, ?, 1, 1, 0)`
-        )
-        .run(c.business_name || c.name || 'Cliente web', ruc, c.phone ?? null, c.email ?? null, now, now)
-      return Number(res.lastInsertRowid)
-    }
-    // Sin RUC: el consumidor final de Aronium.
-    return db.prepare('SELECT Id FROM Customer WHERE Name = ? ORDER BY Id LIMIT 1').get(web.defaultCustomerName)?.Id ?? null
+  // ---- Clientes (punto 4.3) -------------------------------------------------
+
+  function countryId(db, code) {
+    if (!code) return null
+    return db.prepare('SELECT Id FROM Country WHERE upper(Code) = upper(?) LIMIT 1').get(code)?.Id ?? null
   }
+
+  /**
+   * Todo cliente web queda registrado en Aronium. Se busca por RUC y, sin RUC,
+   * por email; si no está, se crea. Aronium manda: de un cliente que ya existe
+   * solo se completan los datos vacíos.
+   */
+  function upsertCustomer(db, payload) {
+    const c = payload.customer ?? {}
+    const a = c.address ?? {}
+    const ruc = (c.ruc ?? '').replace(/\s+/g, '') || null
+    const email = (c.email ?? '').trim().toLowerCase() || null
+    const data = {
+      Name: c.business_name || c.name || 'Cliente web',
+      TaxNumber: ruc,
+      Email: c.email ?? null,
+      PhoneNumber: c.phone ?? null,
+      // Pedidos encolados antes del rediseño traen la dirección en una línea.
+      Address: [a.line1, a.line2].filter(Boolean).join(', ') || (a.line1 === undefined ? payload.address ?? null : null),
+      City: a.city ?? null,
+      PostalCode: a.postal_code ?? null,
+      CountryId: countryId(db, a.country_code),
+    }
+
+    let found = null
+    if (ruc) found = db.prepare("SELECT Id FROM Customer WHERE replace(coalesce(TaxNumber,''),' ','') = ? ORDER BY Id LIMIT 1").get(ruc)
+    if (!found && email) found = db.prepare("SELECT Id FROM Customer WHERE lower(trim(coalesce(Email,''))) = ? ORDER BY Id LIMIT 1").get(email)
+
+    const now = stamp()
+    if (found) {
+      // Solo lo vacío (incluido el RUC, si lo encontró por email y no tenía).
+      const fill = Object.entries(data).filter(([k, v]) => k !== 'Name' && v !== null && v !== '')
+      if (fill.length) {
+        const sets = fill.map(([k]) => (k === 'CountryId' ? `${k} = coalesce(${k}, ?)` : `${k} = coalesce(nullif(trim(${k}), ''), ?)`))
+        const res = db.prepare(`UPDATE Customer SET ${sets.join(', ')} WHERE Id = ?`).run(...fill.map(([, v]) => v), found.Id)
+        if (res.changes) db.prepare('UPDATE Customer SET DateUpdated = ? WHERE Id = ?').run(now, found.Id)
+      }
+      return found.Id
+    }
+    const res = db
+      .prepare(
+        `INSERT INTO Customer (Name, TaxNumber, Email, PhoneNumber, Address, City, PostalCode, CountryId, DateCreated, DateUpdated, IsEnabled, IsCustomer, IsSupplier)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 0)`
+      )
+      .run(data.Name, data.TaxNumber, data.Email, data.PhoneNumber, data.Address, data.City, data.PostalCode, data.CountryId, now, now)
+    return Number(res.lastInsertRowid)
+  }
+
+  // ---- Renglones, stock y pagos ---------------------------------------------
 
   function paymentType(db, method) {
     const name = web.paymentTypes[method ?? ''] ?? web.paymentTypes.bank_transfer
-    const row = db.prepare('SELECT Id FROM PaymentType WHERE IsEnabled = 1 AND lower(Name) = lower(?)').get(name)
-    return { name, id: row?.Id ?? null }
+    const find = (n) => db.prepare('SELECT Id FROM PaymentType WHERE IsEnabled = 1 AND lower(Name) = lower(?)').get(n)?.Id ?? null
+    // El efectivo se llama "Cash" en el Aronium en inglés y "Efectivo" en el
+    // del local: vale cualquiera de los dos si el configurado no está.
+    for (const n of [name, ...(method === 'cash_on_delivery' ? ['Efectivo', 'Cash'] : [])]) {
+      const id = find(n)
+      if (id) return { name: n, id }
+    }
+    return { name, id: null }
   }
 
   function product(db, code) {
-    return db.prepare('SELECT Id, Name, Cost, IsService FROM Product WHERE Code = ?').get(code) ?? null
+    return productByCode(db, code, 'p.Id AS Id, p.Name AS Name, p.Cost AS Cost, p.IsService AS IsService')
+  }
+
+  /** Servicio de Aronium con este nombre (sin importar mayúsculas ni tildes). */
+  function serviceByName(db, name) {
+    const key = fold(name)
+    if (!key) return null
+    const rows = db.prepare('SELECT Id, Name, Cost, IsService FROM Product WHERE IsService = 1 AND IsEnabled = 1').all()
+    return rows.find((r) => fold(r.Name) === key) ?? null
   }
 
   function taxes(db, productId) {
@@ -183,6 +252,22 @@ export function createWriter(config) {
     return itemId
   }
 
+  /** Copia un renglón (con sus impuestos) de un documento a otro. */
+  function copyItem(db, it, documentId) {
+    const res = db
+      .prepare(
+        `INSERT INTO DocumentItem (DocumentId, ProductId, Quantity, ExpectedQuantity, PriceBeforeTax, Price, Discount, DiscountType,
+           ProductCost, PriceBeforeTaxAfterDiscount, PriceAfterDiscount, Total, TotalAfterDocumentDiscount, DiscountApplyRule)
+         VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(documentId, it.ProductId, it.Quantity, it.PriceBeforeTax, it.Price, it.Discount, it.DiscountType, it.ProductCost, it.PriceBeforeTaxAfterDiscount, it.PriceAfterDiscount, it.Total, it.TotalAfterDocumentDiscount, it.DiscountApplyRule)
+    const itemId = Number(res.lastInsertRowid)
+    for (const t of db.prepare('SELECT TaxId, Amount FROM DocumentItemTax WHERE DocumentItemId = ?').all(it.Id)) {
+      db.prepare('INSERT INTO DocumentItemTax (DocumentItemId, TaxId, Amount) VALUES (?, ?, ?)').run(itemId, t.TaxId, t.Amount)
+    }
+    return itemId
+  }
+
   /** Suma (o resta) stock del depósito. Devuelve el stock que quedó. */
   function moveStock(db, productId, warehouseId, delta) {
     const res = db.prepare('UPDATE Stock SET Quantity = Quantity + ? WHERE ProductId = ? AND WarehouseId = ?').run(delta, productId, warehouseId)
@@ -197,42 +282,89 @@ export function createWriter(config) {
     ).run(documentId, typeId, amount, day(), userId, stamp())
   }
 
-  function internalNote(payload, warnings) {
+  function insertDocument(db, d) {
+    const now = stamp()
+    const date = day()
+    const res = db
+      .prepare(
+        `INSERT INTO Document (Number, UserId, CustomerId, OrderNumber, Date, StockDate, Total, IsClockedOut, DocumentTypeId, WarehouseId,
+           ReferenceDocumentNumber, DateCreated, DateUpdated, InternalNote, Note, DueDate, Discount, DiscountType, PaidStatus,
+           DiscountApplyRule, ServiceType)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        d.number,
+        d.userId,
+        d.customerId,
+        d.orderNumber,
+        date,
+        now,
+        d.total,
+        d.typeId,
+        d.warehouseId,
+        d.reference ?? null,
+        now,
+        now,
+        d.internalNote,
+        d.note,
+        date,
+        d.discount ?? 0,
+        d.discountType ?? 0,
+        d.paidStatus,
+        d.discountApplyRule ?? 0,
+        d.serviceType
+      )
+    return Number(res.lastInsertRowid)
+  }
+
+  function appendNote(db, documentId, text) {
+    const row = db.prepare('SELECT InternalNote FROM Document WHERE Id = ?').get(documentId)
+    const current = String(row?.InternalNote ?? '').replace(/(\r?\n)+$/, '')
+    db.prepare('UPDATE Document SET InternalNote = ?, DateUpdated = ? WHERE Id = ?').run(lines(current, text), stamp(), documentId)
+  }
+
+  /** Lo que el local necesita ver en la nota interna. */
+  function orderInfo(payload) {
     const c = payload.customer ?? {}
-    const methods = { bank_transfer: 'Transferencia', cash_on_delivery: 'Efectivo al recibir' }
+    const a = c.address ?? {}
+    const address = [a.line1, a.line2, a.city].filter(Boolean).join(', ') || payload.address
     return [
       `Tienda online, pedido #${payload.display_id}`,
       `Cliente: ${[c.name, c.phone, c.email].filter(Boolean).join(' · ')}`,
       c.ruc && `RUC: ${c.ruc}${c.business_name ? ` · ${c.business_name}` : ''}`,
-      payload.delivery && `Entrega: ${payload.delivery}${payload.address ? ` · ${payload.address}` : ''}`,
-      payload.payment_method && `Pago: ${methods[payload.payment_method] ?? payload.payment_method}`,
+      payload.delivery && `Entrega: ${payload.delivery}${address ? ` · ${address}` : ''}`,
+      payload.payment_method && `Pago: ${PAYMENT_NAMES[payload.payment_method] ?? payload.payment_method}`,
       payload.gift && 'Es para regalo',
       payload.notes && `Notas: ${payload.notes}`,
-      ...warnings.map((w) => `Aviso: ${w}`),
     ]
-      .filter(Boolean)
-      .join('\n')
   }
 
+  function findDoc(db, typeId, { number, code }) {
+    if (number) {
+      const row = db.prepare('SELECT * FROM Document WHERE Number = ? AND DocumentTypeId = ?').get(number, typeId)
+      if (row) return row
+    }
+    if (code) return db.prepare('SELECT * FROM Document WHERE OrderNumber = ? AND DocumentTypeId = ? ORDER BY Id LIMIT 1').get(code, typeId) ?? null
+    return null
+  }
+
+  // ---- 1. Proforma ----------------------------------------------------------
+
   /**
-   * Escribe la venta. `paid`: el pedido ya está pagado (va con su pago).
-   * @returns {{ ok: true, aronium_number: string, payment_registered: boolean, warning?: string }}
+   * Escribe la proforma "No pagado".
+   * @returns {{ ok: true, quote_number: string, warning?: string }}
    */
-  function registerSale(payload, { paid }) {
+  function writeQuote(payload, code) {
     return transaction((db) => {
-      const sale = docType(db, SALE)
-      const orderNumber = `${web.orderPrefix}${payload.display_id}`
+      const quote = docType(db, QUOTE)
 
       // ¿Ya está? (el agente se cortó justo después de escribirla)
-      const existing = db.prepare('SELECT Id, Number FROM Document WHERE OrderNumber = ? AND DocumentTypeId = ?').get(orderNumber, sale.Id)
-      if (existing) {
-        const payments = db.prepare('SELECT count(*) AS n FROM Payment WHERE DocumentId = ?').get(existing.Id).n
-        return { ok: true, aronium_number: existing.Number, payment_registered: payments > 0 }
-      }
+      const existing = findDoc(db, quote.Id, { code })
+      if (existing) return { ok: true, quote_number: existing.Number }
 
       // Todos los productos tienen que existir en Aronium.
-      const lines = payload.lines.map((l) => ({ ...l, product: l.sku ? product(db, l.sku) : null }))
-      const missing = lines.filter((l) => !l.product)
+      const items = payload.lines.map((l) => ({ ...l, product: l.sku ? product(db, l.sku) : null }))
+      const missing = items.filter((l) => !l.product)
       if (missing.length) {
         throw new AroniumDataError(
           `Estos productos no existen en Aronium: ${missing.map((l) => (l.sku ? `${l.title} (código ${l.sku})` : `${l.title} (sin código)`)).join(', ')}. Creá el código en Aronium o corregí el SKU en la tienda y reintentá.`
@@ -240,92 +372,191 @@ export function createWriter(config) {
       }
 
       const warnings = []
-      const warehouseId = config.warehouseId ?? sale.WarehouseId ?? 1
       const userId = findUser(db, warnings)
-      const customerId = findCustomer(db, payload)
+      const customerId = upsertCustomer(db, payload)
 
-      // Envío: un renglón con el producto-servicio de envío, si existe.
+      // Envío: un renglón con el servicio de Aronium que se llama como la
+      // forma de entrega ("Delivery Asunción", "Envío de encomienda (a
+      // cobrar)"), o si no con el de webSales.shippingCode. El retiro en el
+      // local (sin costo y sin servicio con ese nombre) no lleva renglón.
       let shippingProduct = null
-      const shipping = payload.shipping && payload.shipping.total > 0 ? payload.shipping : null
+      const shipping = payload.shipping ?? null
       if (shipping) {
-        shippingProduct = product(db, web.shippingCode)
-        if (!shippingProduct) warnings.push(`No existe el producto "${web.shippingCode}" en Aronium: el envío (${shipping.total}) no está en el total.`)
-      }
-
-      let pay = null
-      if (paid) {
-        pay = paymentType(db, payload.payment_method)
-        if (!pay.id) {
-          warnings.push(`No existe la forma de pago "${pay.name}" en Aronium: la venta quedó impaga.`)
-          pay = null
+        shippingProduct = serviceByName(db, shipping.name)
+        if (!shippingProduct && shipping.total > 0) {
+          shippingProduct = product(db, web.shippingCode)
+          if (!shippingProduct) warnings.push(`No existe el producto "${web.shippingCode}" en Aronium: el envío (${shipping.total}) no está en el total.`)
         }
       }
 
-      const total = lines.reduce((s, l) => s + l.total, 0) + (shippingProduct ? shipping.total : 0)
-      const number = nextNumber(db, SALE)
-      const now = stamp()
-      const date = day()
-      const doc = db
-        .prepare(
-          `INSERT INTO Document (Number, UserId, CustomerId, OrderNumber, Date, StockDate, Total, IsClockedOut, DocumentTypeId, WarehouseId,
-             ReferenceDocumentNumber, DateCreated, DateUpdated, InternalNote, Note, DueDate, Discount, DiscountType, PaidStatus,
-             DiscountApplyRule, ServiceType)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, ?, 0, ?)`
-        )
-        .run(
-          number,
-          userId,
-          customerId,
-          orderNumber,
-          date,
-          now,
-          total,
-          sale.Id,
-          warehouseId,
-          now,
-          now,
-          internalNote(payload, warnings),
-          `Pedido web #${payload.display_id}`,
-          date,
-          pay ? 2 : 0,
-          web.serviceType
-        )
-      const documentId = Number(doc.lastInsertRowid)
-
-      for (const l of lines) {
-        insertItem(db, documentId, l.product, l.quantity, l.unit_price, l.total)
-        if (!l.product.IsService) {
-          const left = moveStock(db, l.product.Id, warehouseId, -l.quantity)
-          if (left < 0) warnings.push(`${l.title}: Aronium quedó con stock ${left} (se vendió también en la caja).`)
-        }
-      }
+      const total = items.reduce((s, l) => s + l.total, 0) + (shippingProduct ? shipping.total : 0)
+      const number = nextNumber(db, QUOTE)
+      const documentId = insertDocument(db, {
+        number,
+        userId,
+        customerId,
+        orderNumber: code,
+        total,
+        typeId: quote.Id,
+        warehouseId: config.warehouseId ?? quote.WarehouseId ?? 1,
+        reference: '',
+        internalNote: lines(`Pedido web ${code}`, ...orderInfo(payload), ...warnings.map((w) => `Aviso: ${w}`)),
+        note: `Pedido web ${code}`,
+        paidStatus: UNPAID,
+        // Como las proformas que hace la caja.
+        serviceType: 0,
+      })
+      for (const l of items) insertItem(db, documentId, l.product, l.quantity, l.unit_price, l.total)
       if (shippingProduct) insertItem(db, documentId, shippingProduct, 1, shipping.total, shipping.total)
-      if (pay) insertPayment(db, documentId, pay.id, total, userId)
 
-      // Los avisos que surgieron al final también van a la nota interna.
-      if (warnings.length) db.prepare('UPDATE Document SET InternalNote = ? WHERE Id = ?').run(internalNote(payload, warnings), documentId)
-
-      return { ok: true, aronium_number: number, payment_registered: Boolean(pay), ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
+      return { ok: true, quote_number: number, ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
     })
   }
 
-  /** La venta ya está en Aronium y ahora se pagó: agrega el pago. */
-  function addPayment(number, payload) {
+  // ---- 2. ¿La marcaron "Pagado"? ----------------------------------------------
+
+  /**
+   * Lectura (sin bloquear la caja): estado de la proforma.
+   * @returns {{ exists: false } | { exists: true, number: string, paid: boolean, voided: boolean, invoiced: string | null }}
+   */
+  function quoteStatus(quoteNumber, code) {
+    const db = open(true)
+    try {
+      const quote = db.prepare('SELECT Id FROM DocumentType WHERE Code = ?').get(QUOTE)
+      const sale = db.prepare('SELECT Id FROM DocumentType WHERE Code = ?').get(SALE)
+      if (!quote) return { exists: false }
+      const doc = findDoc(db, quote.Id, { number: quoteNumber, code })
+      if (!doc) return { exists: false }
+      const invoiced = sale ? db.prepare('SELECT Number FROM Document WHERE OrderNumber = ? AND DocumentTypeId = ?').get(code, sale.Id)?.Number ?? null : null
+      return { exists: true, number: doc.Number, paid: Number(doc.PaidStatus) === PAID, voided: /ANULADO/.test(doc.InternalNote ?? ''), invoiced }
+    } finally {
+      db.close()
+    }
+  }
+
+  // ---- 3. Venta -------------------------------------------------------------
+
+  /**
+   * Una venta hecha a mano en la caja que parece ser este mismo pedido: del
+   * mismo cliente (no el consumidor final), creada después de la proforma, con
+   * los mismos productos y cantidades.
+   */
+  function manualDuplicate(db, saleTypeId, quoteDoc, quoteItems) {
+    // El consumidor final es el cliente 1 ("Walk-in customer" en inglés,
+    // "Unknown" en el local), o el que diga webSales.defaultCustomerName.
+    const walkIn = db.prepare('SELECT Id FROM Customer WHERE Name = ? ORDER BY Id LIMIT 1').get(web.defaultCustomerName)?.Id ?? null
+    if (!quoteDoc.CustomerId || quoteDoc.CustomerId === walkIn || quoteDoc.CustomerId === 1) return null
+    const key = (items) =>
+      items
+        .map((i) => `${i.ProductId}x${Number(i.Quantity)}`)
+        .sort()
+        .join(',')
+    const wanted = key(quoteItems)
+    const candidates = db
+      .prepare(
+        `SELECT Id, Number FROM Document
+         WHERE DocumentTypeId = ? AND CustomerId = ? AND DateCreated >= ? AND coalesce(OrderNumber, '') NOT LIKE 'PW-%'
+         ORDER BY Id`
+      )
+      .all(saleTypeId, quoteDoc.CustomerId, quoteDoc.DateCreated)
+    for (const c of candidates) {
+      const items = db.prepare('SELECT ProductId, Quantity FROM DocumentItem WHERE DocumentId = ?').all(c.Id)
+      if (key(items) === wanted) return c
+    }
+    return null
+  }
+
+  /**
+   * La proforma está "Pagado": crea la venta con lo que dice la proforma (lo
+   * que acordó la cajera con el cliente), el pago y el stock.
+   * @returns {{ ok: true, aronium_number: string, warning?: string }}
+   */
+  function invoiceQuote(quoteNumber, payload, code) {
     return transaction((db) => {
+      const quote = docType(db, QUOTE)
       const sale = docType(db, SALE)
-      const doc = db.prepare('SELECT Id, Total, UserId FROM Document WHERE Number = ? AND DocumentTypeId = ?').get(number, sale.Id)
-      if (!doc) throw new AroniumDataError(`No se encontró la venta ${number} en Aronium.`)
-      const payments = db.prepare('SELECT count(*) AS n FROM Payment WHERE DocumentId = ?').get(doc.Id).n
-      if (payments > 0) return { ok: true }
+
+      const existing = findDoc(db, sale.Id, { code })
+      if (existing) return { ok: true, aronium_number: existing.Number }
+
+      const q = findDoc(db, quote.Id, { number: quoteNumber, code })
+      if (!q) throw new AroniumDataError(`La proforma ${quoteNumber ?? code} ya no existe en Aronium (¿la borraron?). Cargá la venta a mano en la caja.`)
+      const items = db.prepare('SELECT * FROM DocumentItem WHERE DocumentId = ? ORDER BY Id').all(q.Id)
+      if (!items.length) throw new AroniumDataError(`La proforma ${q.Number} no tiene productos.`)
+
+      const warnings = []
+      const duplicate = manualDuplicate(db, sale.Id, q, items)
+      if (duplicate) {
+        // La cajera ya cargó la venta a mano: no se crea otra.
+        appendNote(db, q.Id, `Facturado ${duplicate.Number} (cargada a mano en la caja) · ${human()}`)
+        return {
+          ok: true,
+          aronium_number: duplicate.Number,
+          warning: `Posible venta duplicada: la venta ${duplicate.Number} se cargó a mano en la caja con los mismos productos y el mismo cliente; se tomó esa y no se creó otra. Revisá que corresponda a este pedido.`,
+        }
+      }
+
+      const expected = payload.lines.reduce((s, l) => s + l.total, 0) + (payload.shipping?.total ?? 0)
+      if (Math.round(Number(q.Total)) !== Math.round(expected)) {
+        warnings.push(`La proforma se cambió en Aronium: total ${Number(q.Total)} en vez de ${expected} del pedido web. La venta se hizo con lo de la proforma.`)
+      }
+
       const pay = paymentType(db, payload.payment_method)
-      if (!pay.id) throw new AroniumDataError(`No existe la forma de pago "${pay.name}" en Aronium. Creala y el pago se registra solo.`)
-      insertPayment(db, doc.Id, pay.id, Number(doc.Total), doc.UserId)
-      db.prepare('UPDATE Document SET PaidStatus = 2, DateUpdated = ? WHERE Id = ?').run(stamp(), doc.Id)
-      return { ok: true }
+      if (!pay.id) warnings.push(`No existe la forma de pago "${pay.name}" en Aronium: la venta quedó sin pago registrado.`)
+
+      const number = nextNumber(db, SALE)
+      const documentId = insertDocument(db, {
+        number,
+        userId: q.UserId,
+        customerId: q.CustomerId,
+        orderNumber: code,
+        total: q.Total,
+        typeId: sale.Id,
+        warehouseId: q.WarehouseId,
+        reference: null,
+        internalNote: lines(`Pedido web ${code} · Proforma ${q.Number}`, ...orderInfo(payload), ...warnings.map((w) => `Aviso: ${w}`)),
+        note: `Pedido web ${code}`,
+        discount: q.Discount,
+        discountType: q.DiscountType,
+        discountApplyRule: q.DiscountApplyRule,
+        paidStatus: pay.id ? PAID : UNPAID,
+        serviceType: web.serviceType,
+      })
+      for (const it of items) {
+        copyItem(db, it, documentId)
+        const prod = db.prepare('SELECT IsService, Name FROM Product WHERE Id = ?').get(it.ProductId)
+        if (prod && !prod.IsService) {
+          const left = moveStock(db, it.ProductId, q.WarehouseId, -Number(it.Quantity))
+          if (left < 0) warnings.push(`${prod.Name}: Aronium quedó con stock ${left} (se vendió también en la caja).`)
+        }
+      }
+      if (pay.id) insertPayment(db, documentId, pay.id, Number(q.Total), q.UserId)
+      appendNote(db, q.Id, `Facturado ${number} · ${human()}`)
+
+      return { ok: true, aronium_number: number, ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
     })
   }
 
-  /** Pedido cancelado en la tienda después de estar en Aronium: devolución. */
+  // ---- Cancelaciones --------------------------------------------------------
+
+  /**
+   * Pedido cancelado con la proforma (sin venta) en Aronium: queda anotada
+   * ANULADO. Si la cajera la había marcado "Pagado", se avisa.
+   * @returns {{ ok: true, warning?: string }}
+   */
+  function voidQuote(quoteNumber, payload, code) {
+    return transaction((db) => {
+      const quote = docType(db, QUOTE)
+      const q = findDoc(db, quote.Id, { number: quoteNumber, code })
+      if (!q) return { ok: true }
+      if (!/ANULADO/.test(q.InternalNote ?? '')) appendNote(db, q.Id, `ANULADO: pedido #${payload.display_id} cancelado en la tienda · ${human()}`)
+      return Number(q.PaidStatus) === PAID
+        ? { ok: true, warning: `La proforma ${q.Number} estaba marcada "Pagado": si el cliente pagó, falta devolverle el dinero.` }
+        : { ok: true }
+    })
+  }
+
+  /** Pedido cancelado en la tienda después de ser venta: devolución. */
   function cancelSale(number, payload) {
     return transaction((db) => {
       const sale = docType(db, SALE)
@@ -338,55 +569,37 @@ export function createWriter(config) {
       const items = db.prepare('SELECT * FROM DocumentItem WHERE DocumentId = ?').all(original.Id)
       const payments = db.prepare('SELECT PaymentTypeId, Amount FROM Payment WHERE DocumentId = ?').all(original.Id)
       const refundNumber = nextNumber(db, REFUND)
-      const now = stamp()
-      const date = day()
-      const doc = db
-        .prepare(
-          `INSERT INTO Document (Number, UserId, CustomerId, OrderNumber, Date, StockDate, Total, IsClockedOut, DocumentTypeId, WarehouseId,
-             ReferenceDocumentNumber, DateCreated, DateUpdated, InternalNote, Note, DueDate, Discount, DiscountType, PaidStatus,
-             DiscountApplyRule, ServiceType)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 0, ?)`
-        )
-        .run(
-          refundNumber,
-          original.UserId,
-          original.CustomerId,
-          original.OrderNumber,
-          date,
-          now,
-          original.Total,
-          refund.Id,
-          original.WarehouseId,
-          number,
-          now,
-          now,
-          `Pedido web #${payload.display_id} cancelado en la tienda. Devolución de la venta ${number}.`,
-          `Devolución pedido web #${payload.display_id}`,
-          date,
-          payments.length ? 2 : 0,
-          original.ServiceType
-        )
-      const documentId = Number(doc.lastInsertRowid)
+      const documentId = insertDocument(db, {
+        number: refundNumber,
+        userId: original.UserId,
+        customerId: original.CustomerId,
+        orderNumber: original.OrderNumber,
+        total: original.Total,
+        typeId: refund.Id,
+        warehouseId: original.WarehouseId,
+        reference: number,
+        internalNote: `Pedido web #${payload.display_id} cancelado en la tienda. Devolución de la venta ${number}.`,
+        note: `Devolución pedido web #${payload.display_id}`,
+        discount: original.Discount,
+        discountType: original.DiscountType,
+        discountApplyRule: original.DiscountApplyRule,
+        paidStatus: payments.length ? PAID : 0,
+        serviceType: original.ServiceType,
+      })
       for (const it of items) {
-        const res = db
-          .prepare(
-            `INSERT INTO DocumentItem (DocumentId, ProductId, Quantity, ExpectedQuantity, PriceBeforeTax, Price, Discount, DiscountType,
-               ProductCost, PriceBeforeTaxAfterDiscount, PriceAfterDiscount, Total, TotalAfterDocumentDiscount, DiscountApplyRule)
-             VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(documentId, it.ProductId, it.Quantity, it.PriceBeforeTax, it.Price, it.Discount, it.DiscountType, it.ProductCost, it.PriceBeforeTaxAfterDiscount, it.PriceAfterDiscount, it.Total, it.TotalAfterDocumentDiscount, it.DiscountApplyRule)
-        const itemId = Number(res.lastInsertRowid)
-        for (const t of db.prepare('SELECT TaxId, Amount FROM DocumentItemTax WHERE DocumentItemId = ?').all(it.Id)) {
-          db.prepare('INSERT INTO DocumentItemTax (DocumentItemId, TaxId, Amount) VALUES (?, ?, ?)').run(itemId, t.TaxId, t.Amount)
-        }
+        copyItem(db, it, documentId)
         const prod = db.prepare('SELECT IsService FROM Product WHERE Id = ?').get(it.ProductId)
         if (prod && !prod.IsService) moveStock(db, it.ProductId, original.WarehouseId, Number(it.Quantity))
       }
       // Si la venta estaba pagada, la devolución devuelve la plata (en negativo).
       for (const p of payments) insertPayment(db, documentId, p.PaymentTypeId, -Number(p.Amount), original.UserId)
+      // La proforma de origen también queda anotada.
+      const quote = docType(db, QUOTE)
+      const q = original.OrderNumber ? findDoc(db, quote.Id, { code: original.OrderNumber }) : null
+      if (q && !/ANULADO/.test(q.InternalNote ?? '')) appendNote(db, q.Id, `ANULADO: devolución ${refundNumber} · ${human()}`)
       return { ok: true, refund_number: refundNumber }
     })
   }
 
-  return { registerSale, addPayment, cancelSale }
+  return { writeQuote, quoteStatus, invoiceQuote, voidQuote, cancelSale }
 }

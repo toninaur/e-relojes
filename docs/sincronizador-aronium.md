@@ -1,8 +1,10 @@
 # Sincronizador Aronium Lite ↔ tienda online
 
-Estado: **construido y probado sobre una copia de `pos.db`** (17/11/2026). Falta la
-prueba con Aronium abierto (punto 8, paso 5) y en el local. Reemplaza a
-`plan-ventas-online-aronium.md`. Instalación y uso: [connector/README.md](../connector/README.md).
+Estado: Aronium → tienda **construido y probado** (17/11/2026). Tienda → Aronium
+**rediseñado el 18/11/2026**: el pedido web entra como **proforma** (cotización) y
+se convierte en venta cuando la cajera la marca "Pagado" (punto 4.2). Lo
+construido el 17/11 (venta directa) se reutiliza para ese segundo paso.
+Reemplaza a `plan-ventas-online-aronium.md`. Instalación y uso: [connector/README.md](../connector/README.md).
 
 ## 1. Qué hace, en una frase
 
@@ -17,11 +19,12 @@ quede registrada en Aronium**, sin que nadie cargue nada dos veces.
    web, punto 3).
 2. **La tienda manda en lo comercial:** fotos, descripciones, categorías,
    marcas, filtros, ofertas y cupones. Aronium no los pisa.
-3. **Toda venta termina en Aronium.** Las de la caja ya están; las de la web las
-   carga el sincronizador, como si se hubieran cobrado en la caja.
-4. **Stock que ve el cliente online = stock de Aronium − ventas web que todavía
-   no están en Aronium.** En ningún momento se descuenta dos veces ni se vende de
-   más por demora.
+3. **Todo pedido web llega a Aronium.** Primero como proforma (no mueve stock);
+   cuando el cliente paga y la cajera la marca "Pagado", el sincronizador la
+   convierte en venta, como si se hubiera cobrado en la caja.
+4. **Stock que ve el cliente online = stock de Aronium − pedidos web que todavía
+   no son venta en Aronium.** En ningún momento se descuenta dos veces ni se vende
+   de más por demora.
 5. **Una venta nunca se pierde ni se duplica.** Cada pedido web se registra una
    sola vez aunque se corte la luz o internet a mitad de camino.
 6. **Si algo falla, se ve.** El panel de la tienda (→ Aronium) muestra el estado
@@ -90,57 +93,117 @@ Siempre a mano en el panel: fotos adicionales, ofertas, portada y banner.
 
 Fuente futura: ContiMarket (fotos y descripciones), si dan acceso a su API.
 
-**Cambio pendiente (regla 4):** hoy la tienda copia el stock de Aronium tal
-cual y le resta todas las reservas web. Cuando el punto 4.2 esté hecho, una
-venta web ya registrada en Aronium aparece dos veces: en el stock de Aronium y
-en la reserva. Nueva fórmula:
+**Fórmula del stock (regla 4).** Una venta web ya registrada en Aronium aparece
+dos veces: en el stock de Aronium y en la reserva de la tienda. Por eso:
 
 > stock del local en la tienda = stock de Aronium + unidades de pedidos web **ya
-> registrados en Aronium** y todavía no entregados
+> convertidos en venta en Aronium** y todavía no entregados
 
-Así lo disponible online (stock − reservas) queda siempre igual a "Aronium menos
-las ventas web que todavía no llegaron a Aronium". Ejemplo: Aronium tiene 5, entra
-un pedido web de 1 → online 4 (reserva). El agente lo registra en Aronium → Aronium
-4, la tienda guarda 4 + 1 = 5, reserva 1 → online 4. Se entrega → la reserva se va,
-Aronium 4 → online 4. En ningún paso cambia el número que ve el cliente.
+La proforma no mueve stock, así que mientras el pedido está como proforma solo
+cuenta la reserva de la tienda. Ejemplo: Aronium tiene 5, entra un pedido web de
+1 → proforma, online 4 (reserva). La cajera la marca "Pagado" → el agente crea la
+venta, Aronium 4, la tienda guarda 4 + 1 = 5, reserva 1 → online 4. Se entrega →
+la reserva se va, Aronium 4 → online 4. En ningún paso cambia el número que ve el
+cliente.
 
-### 4.2 Tienda → Aronium (a construir)
+### 4.2 Tienda → Aronium: pedido → proforma → venta (rediseño 18/11)
 
 ```
-cliente compra ─▶ pedido en la tienda ─▶ cola "ventas web" (pendiente)
-                                              │
-            agente, cada minuto ◀─────────────┘
-                 │  ¿ya existe WEB-123 en Aronium? → sí: solo avisa "registrada"
-                 │  no: escribe la venta en Aronium (todo o nada)
-                 ▼
-         Aronium: venta WEB-123, stock descontado ─▶ avisa a la tienda: registrada (N.º 26-200-000045)
+cliente compra ─▶ pedido en la tienda (pendiente de pago) ─▶ cola "pedidos web"
+                                                                  │
+   agente, cada minuto ◀──────────────────────────────────────────┘
+     │  ¿ya existe una proforma con PW-1042-K7? → sí: solo avisa "registrado"
+     │  no: escribe la PROFORMA (tipo 230, "No pagado")      → no mueve stock
+     ▼
+   Aronium: proforma 26-230-000012, nota interna "Pedido web PW-1042-K7"
+   Alerta: panel de la tienda + aviso en la PC del local
+     │
+     │  el cliente paga o transfiere → la cajera marca la proforma "Pagado"
+     ▼
+   agente (≤ 1 minuto): ve PaidStatus 1 → 2 en una proforma con código PW-
+     1. escribe la VENTA (tipo 200) con lo que dice la proforma, y su pago → resta stock
+     2. agrega a la nota interna de la proforma "Facturado 26-200-000046"
+     3. avisa a la tienda → pedido "pagado", con el N.º de venta de Aronium
 ```
+
+**Lo verificado en Aronium Lite (18/11):** la proforma no se puede convertir en
+venta desde Aronium; solo se marca "Pagado" / "No pagado". Eso cambia
+`Document.PaidStatus` (**2 = Pagado, 1 = No pagado**) y no crea ningún `Payment`
+ni toca el stock. **Aronium crea las proformas como "Pagado" por defecto**: el
+agente las escribe explícitamente con `PaidStatus = 1`. El campo "Número de
+orden" no se ve en la proforma; por eso el código va en la nota interna.
+
+**Código de seguimiento:** `PW-<número de pedido>-<control>`, por ejemplo
+`PW-1042-K7`. El número es el `display_id` del pedido en la tienda (único); el
+control son 2 caracteres que detectan un código mal tipeado. Corto para poder
+dictarlo o escribirlo a mano. Va en:
+
+| Dónde | Qué |
+|---|---|
+| Proforma, nota interna | `Pedido web PW-1042-K7`, y debajo cliente, teléfono, RUC, entrega, pago y notas del cliente |
+| Proforma, `OrderNumber` | `PW-1042-K7` (para buscarla por código) |
+| Venta creada desde la proforma | Mismo `OrderNumber` y nota interna `Pedido web PW-1042-K7 · Proforma 26-230-000012` |
+| Pedido en la tienda | Metadata del pedido; visible en el panel y en el email de confirmación |
 
 **Qué escribe en Aronium**, igual que lo hace la caja (estudiado en `pos.db`):
 
-| Tabla | Qué |
-|---|---|
-| `Document` | Venta (tipo 200), número siguiente del año (`26-200-000045`), fecha, depósito, usuario principal de la caja, cliente, **número de pedido `WEB-123`**, nota con nombre, teléfono, RUC, entrega y notas del cliente |
-| `DocumentItem` | Un renglón por producto (código de Aronium = SKU), cantidad y **precio realmente cobrado** (con oferta o cupón) |
-| `DocumentItemTax` | El impuesto que cada producto tiene cargado en Aronium |
-| `Payment` | El pago, cuando corresponde (ver decisión D1) |
-| `Stock` | Resta las unidades vendidas |
-| `Counter` | Avanza la numeración |
+| Tabla | Proforma (al llegar el pedido) | Venta (al marcarse "Pagado") |
+|---|---|---|
+| `Document` | Tipo 230, número siguiente del año (`26-230-…`), cliente, `OrderNumber`, nota interna, `PaidStatus = 1` | Tipo 200 (`26-200-…`), mismos datos, `PaidStatus = 2` |
+| `DocumentItem` | Un renglón por producto (código = SKU), cantidad y **precio realmente cobrado** (con oferta o cupón) | Copia de los renglones **de la proforma** |
+| `DocumentItemTax` | El impuesto de cada producto | Ídem |
+| `Payment` | — | El pago, con la forma de pago del pedido (D2) |
+| `Stock` | — | Resta las unidades |
+| `Counter` | Numeración 230 | Numeración 200 |
 
-Todo dentro de **una sola transacción de SQLite**: o entra la venta completa o
-no entra nada. Antes de escribir se fija si ya existe una venta con ese `WEB-…`
-(si el agente se cortó justo después de escribir, no la repite).
+Cada paso en **una sola transacción de SQLite**, y nunca dos veces: antes de
+escribir la proforma busca el código; antes de escribir la venta busca una venta
+con ese `OrderNumber`.
 
 **Casos especiales**
 
 | Caso | Qué hace |
 |---|---|
-| Un producto del pedido no existe en Aronium (SKU sin código) | No escribe nada; el pedido queda "con error" en el panel, con el código que falta |
-| No alcanza el stock en Aronium (se vendió en la caja al mismo tiempo) | Registra igual (la venta ya se hizo) y lo marca en el panel para avisarle al cliente |
-| Costo de envío | Renglón con un producto-servicio "Envío" de Aronium (decisión D4) |
-| Pedido cancelado antes de llegar a Aronium | Sale de la cola; no se escribe nada |
-| Pedido cancelado después | Se escribe una **devolución** (tipo 220) que devuelve el stock y hace referencia a la venta |
-| Cambios, devoluciones parciales | Fuera de esta versión: se hacen a mano en Aronium, como hoy |
+| Un producto del pedido no existe en Aronium | No escribe nada; el pedido queda "con error" en el panel, con el código que falta |
+| La cajera cambió la proforma (cantidades, precios) antes de marcarla "Pagado" | La venta se hace con lo que dice la proforma (es lo acordado con el cliente); el panel marca la diferencia con el pedido web |
+| La cajera además cargó la venta a mano en la caja | Antes de crear la venta, el agente busca una venta de los últimos días del mismo cliente con los mismos productos. Si la hay, no crea otra: la vincula y avisa "posible venta duplicada" en el panel |
+| Marcada "Pagado" y después vuelta a "No pagado" | Si la venta ya se creó, no se deshace sola: aviso en el panel |
+| No alcanza el stock en Aronium al crear la venta | Crea la venta igual (ya se cobró) y lo marca en el panel |
+| Pedido cancelado en la tienda, proforma sin pagar | Agrega `ANULADO` a la nota interna de la proforma (no hay stock que devolver) |
+| Pedido cancelado después de la venta | **Devolución** (tipo 220) que devuelve el stock, como ya está hecho |
+| Pedidos sin pagar | **No vencen**: la proforma queda abierta y el stock reservado online hasta que se pague o se cancele |
+| Proformas hechas a mano en Aronium (sin código PW-) | El agente no las toca |
+| Costo de envío | Renglón con un producto-servicio "Envío" de Aronium (D4) |
+| Cambios, devoluciones parciales | Fuera de esta versión: a mano en Aronium |
+
+### 4.3 Clientes
+
+Todo cliente de un pedido web queda registrado como cliente en Aronium.
+
+| Dato | En la tienda | En Aronium (`Customer`) |
+|---|---|---|
+| RUC | Checkout (hoy en el pedido); **se guarda también en el cliente** | `TaxNumber` |
+| Razón social / nombre | Checkout / cliente | `Name` |
+| Email, teléfono | Cliente / dirección | `Email`, `PhoneNumber` |
+| Dirección | Dirección de envío/facturación (`address_1`, `address_2`) | `Address` |
+| Ciudad | `city` | `City` |
+| País | `country_code` | `CountryId` (tabla `Country` de Aronium) |
+
+Búsqueda: primero por RUC; sin RUC, por email; si no está, se crea. **Aronium
+manda:** si el cliente ya existe, solo se completan los campos vacíos.
+
+### 4.4 Alertas
+
+| Dónde | Qué avisa |
+|---|---|
+| Panel de la tienda (→ Aronium y lista de pedidos) | Pedido web nuevo, pedidos con error, diferencias proforma/pedido, posible venta duplicada, stock insuficiente para pedidos abiertos |
+| PC del local | Aviso de Windows "Pedido web PW-1042-K7 — Juan Pérez — Gs. 1.250.000", ícono junto al reloj con los pedidos pendientes y acceso a una pantalla local con el detalle |
+
+El agente corre como tarea de Windows con el usuario SYSTEM (arranca aunque nadie
+inicie sesión), y Windows no deja que esas tareas muestren nada en pantalla. Por
+eso los avisos de la PC son un **segundo programa chico** que arranca al iniciar
+sesión el usuario del local y lee el estado del agente (`state.json` o un puerto
+local).
 
 ## 5. Seguridad de los datos de Aronium
 
@@ -169,14 +232,39 @@ no entra nada. Antes de escribir se fija si ya existe una venta con ese `WEB-…
 
 | | Decisión | Propuesta | Alternativa |
 |---|---|---|---|
-| D1 | ¿Cuándo entra la venta web en Aronium? | **Al hacerse el pedido**, como venta impaga; el pago se agrega cuando se marca "pagado" en el panel | Recién cuando se marca pagado (el stock de Aronium tarda más en bajar) |
+| D1 | ¿Cuándo entra el pedido web en Aronium? | **Decidido 18/11:** al hacerse el pedido, como **proforma** "No pagado"; la venta la crea el agente cuando la cajera marca la proforma "Pagado" en Aronium | — |
 | D2 | Forma de pago en Aronium | Crear "Transferencia" en Aronium; "Efectivo al recibir" va como efectivo cuando se cobra | Todo como efectivo (descuadra el arqueo) |
-| D3 | Cliente | Consumidor final ("Walk-in customer") con los datos en la nota; **si dejó RUC**, se busca o crea el cliente con ese RUC (para la factura) | Siempre consumidor final |
+| D3 | Cliente | **Decidido 18/11:** todo cliente web se registra en Aronium (punto 4.3), buscado por RUC y si no por email | — |
+| D7 | Pedidos sin pagar | **Decidido 18/11:** no vencen; quedan como proforma y con stock reservado hasta que se paguen o se cancelen | Vencer a las 48 h |
+| D8 | Alertas | **Decidido 18/11:** panel de la tienda y programa de avisos en la PC del local (punto 4.4) | — |
 | D4 | Envío | Producto-servicio "Envío" en Aronium | No registrar el envío (el total no coincide con lo cobrado) |
 | D5 | Usuario que figura en la venta | **El usuario principal** (decidido en la prueba del 17/11: el historial de ventas de Aronium muestra solo las del usuario con la sesión abierta; con un usuario aparte, las ventas web no se veían) | Otro (`webSales.userName`) |
 | D6 | Depósito | El del local (el único) | Uno específico (`warehouseId`) |
 
 ## 8. Plan de trabajo
+
+### Rediseño proforma (18/11)
+
+1. **Tienda (servidor):** código `PW-…` por pedido; RUC y razón social también
+   en el cliente; la cola pasa a tener los estados *pendiente → proforma →
+   pagado (venta N.º …) / anulado / con error*; ruta para que el agente informe
+   "pagado" y la tienda marque el pago del pedido; dirección, ciudad y país en
+   lo que se manda al agente.
+2. **Agente:** escribir la proforma (tipo 230, `PaidStatus = 1`); cada pasada,
+   buscar proformas `PW-` que pasaron a "Pagado" y crear la venta reutilizando
+   la escritura actual; anular proformas; cliente con dirección, ciudad y país;
+   control de venta duplicada.
+3. **Panel:** estados nuevos, código PW- en el pedido, avisos (diferencias,
+   duplicadas, stock insuficiente).
+4. **Avisos en la PC:** programa de bandeja que arranca al iniciar sesión.
+   *Hecho 18/11 (agente 0.7.1): `connector/avisos.ps1` lee `avisos.json`.*
+5. **Pruebas** sobre copia de `pos.db` y después con Aronium abierto: que la
+   proforma se vea y se pueda imprimir, que "Pagado" dispare la venta, que la
+   numeración 230 y 200 no se repita.
+6. **ContiMarket:** segunda etapa, como módulo aparte del agente, cuando den
+   acceso a su API.
+
+### Plan original (17/11)
 
 1. **Servidor:** cola de ventas web (tabla nueva), rutas para el agente, clave
    propia, nueva fórmula de stock, cancelaciones.

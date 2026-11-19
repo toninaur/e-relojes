@@ -2,8 +2,8 @@ import type { MedusaRequest, MedusaResponse } from '@medusajs/framework/http'
 import { MedusaError } from '@medusajs/framework/utils'
 import { agentResultSchema, applyAgentResult } from '../../../../lib/aronium-web-sales'
 
-// POST /aronium-agent/web-sales/:id: resultado de escribir una venta web en
-// Aronium (registrada, pago agregado, devolución) o el error.
+// POST /aronium-agent/web-sales/:id: resultado del agente para un pedido web
+// (proforma escrita, venta creada, proforma anulada o devolución) o el error.
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const parsed = agentResultSchema.safeParse(req.body)
   if (!parsed.success) {

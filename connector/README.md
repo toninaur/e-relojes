@@ -14,11 +14,13 @@ y decisiones: [docs/sincronizador-aronium.md](../docs/sincronizador-aronium.md).
 
 | En Aronium | En la tienda |
 |---|---|
-| Código del producto | SKU de la variante (es lo que los une) |
+| Código del producto | SKU de la variante (es lo que los une). Sin código, el primer código de barras hace de código (salvo que choque con otro) |
 | Precio | Precio normal. Las ofertas (lista "Ofertas") no se tocan |
 | Stock (suma de los depósitos, o el de `warehouseId`) | Stock del local, más las ventas web que Aronium ya restó y la tienda todavía tiene reservadas (así nada se descuenta dos veces) |
 | Producto borrado | **Baja**: stock 0 (no se vende online) |
-| Código que no existe en la tienda | Producto nuevo **en borrador** con nombre, descripción, filtros, categoría, marca y tipo deducidos; la foto llega en un segundo paso |
+| Código que no existe en la tienda | Producto nuevo **en borrador** (oculto) con nombre, descripción, filtros, categoría, marca y tipo deducidos; la foto llega en un segundo paso. **Se publica solo** cuando tiene foto, categoría y stock (una vez: si alguien lo vuelve a ocultar, queda oculto). De a 250 por pasada: la primera carga del catálogo entero (unos 2.250 productos) tarda unos minutos |
+| Producto sin código ni código de barras | No llega a la tienda |
+| Producto publicado que se queda sin stock | Se **oculta**, y vuelve solo cuando tiene stock (lo pidió el local). Las mallas no se publican solas |
 | Foto, descripción, código de barras | Se copian y se mantienen al día, salvo que se editen en el panel |
 
 **Descripción con filtros (opcional).** En la descripción de Aronium se pueden
@@ -53,25 +55,36 @@ Aronium Lite no permite desactivar productos ni borrar los que tienen
 movimientos: para dejar de vender algo online, stock 0 en Aronium o
 "despublicar" en el panel.
 
-## Tienda → Aronium (ventas web)
+## Tienda → Aronium (pedidos web: proforma → venta)
 
-Cada pedido de la tienda se escribe en Aronium como una venta más (lo mismo que
-graba la caja al cobrar):
+Desde el agente 0.7.0, cada pedido de la tienda entra a Aronium como
+**proforma** y pasa a venta cuando el cliente paga:
 
 | Pedido | En Aronium |
 |---|---|
-| Pedido nuevo | Venta con el número siguiente, **número de pedido `WEB-123`**, el precio cobrado de cada producto (con oferta o cupón), el IVA de cada producto, el envío (producto `ENVIO`), y el stock descontado. Nota interna con cliente, teléfono, RUC, entrega y notas. **Impaga** hasta que se pague |
-| Marcado como pagado en el panel | Se agrega el pago (forma "Transferencia" o "Cash") |
-| Cliente con RUC | Se usa (o crea) el cliente de Aronium con ese RUC, para la factura; sin RUC, el "Walk-in customer" |
-| Cancelado en el panel | Devolución (documento 220) que devuelve el stock y la plata |
+| Pedido nuevo | **Proforma** (documento 230) **"No pagado"**, con el cliente, el precio cobrado de cada producto (con oferta o cupón), el IVA y el envío (el servicio de Aronium que se llama como la forma de entrega: "Delivery Asunción", "Envío de encomienda (a cobrar)"; si no hay, el producto `ENVIO`). **No descuenta stock.** Número de orden y nota interna: **`Pedido web PW-1042-K7`** (el código de seguimiento), con cliente, teléfono, RUC, entrega, pago y notas |
+| La cajera marca la proforma **"Pagado"** | En la pasada siguiente el agente crea la **venta** (documento 200) con lo que dice la proforma, el pago ("Itaú" o "Efectivo") y el stock descontado; anota "Facturado 26-200-…" en la proforma; la tienda marca el pedido como pagado |
+| Cliente | Todos quedan registrados en Aronium, buscados por RUC y si no por email, con dirección, ciudad y país. Si ya existe, solo se completan los datos vacíos |
+| Cancelado antes de pagar | La proforma queda anotada **ANULADO** |
+| Cancelado después de la venta | Devolución (documento 220) que devuelve el stock y la plata |
 
-Nunca duplica una venta (si ya existe `WEB-123`, no la repite) y la escribe
-entera o nada. Si un producto del pedido no existe en Aronium, no escribe nada
-y el pedido queda "Con error" en el panel, con botón **Reintentar**.
+Aronium Lite no convierte proformas en venta ni crea un pago al marcarlas
+"Pagado" (solo cambia `PaidStatus`: 1 = No pagado, 2 = Pagado), y crea las
+proformas como "Pagado" por defecto: por eso el agente escribe la venta él mismo
+y fija "No pagado" al crear la proforma.
+
+Nunca duplica nada (busca el código `PW-…` antes de escribir) y escribe cada
+documento entero o nada. Si un producto del pedido no existe en Aronium, no
+escribe nada y el pedido queda "Con error" en el panel, con botón
+**Reintentar**. Avisa en el panel si la cajera cambió la proforma antes de
+cobrarla (la venta sale con lo de la proforma), si ya había cargado la venta a
+mano (no crea otra) o si la proforma se borró. Las proformas hechas a mano, sin
+código `PW-`, no se tocan.
 
 **Ante la duda, no escribe:** si una actualización de Aronium cambió su base de
 datos, el agente sigue sincronizando stock y precios pero deja de registrar
-ventas y lo avisa en el panel.
+pedidos y lo avisa en el panel. Un agente anterior a 0.7.0 tampoco recibe
+pedidos (no los entendería): el panel avisa que hay que actualizarlo.
 
 ### Qué hay que crear en Aronium (una vez)
 
@@ -79,16 +92,16 @@ ventas y lo avisa en el panel.
 con Aronium abierto o cerrado, después de una copia de respaldo, y solo crea lo
 que falta.
 
-**Usuario:** las ventas web quedan a nombre del usuario principal de Aronium (el
-de más permisos), porque el historial de ventas de Aronium muestra solo las
-ventas del usuario con la sesión abierta. Se reconocen por el número de pedido
-`WEB-…` y la nota interna. Para usar otro: `webSales.userName` en `config.json`.
+**Usuario:** las proformas y ventas web quedan a nombre del usuario principal de
+Aronium (el de más permisos), porque el historial de Aronium muestra solo los
+documentos del usuario con la sesión abierta. Se reconocen por el número de
+orden `PW-…` y la nota interna. Para usar otro: `webSales.userName` en `config.json`.
 
 
 | Qué | Para qué | Si no está |
 |---|---|---|
-| Forma de pago **"Transferencia"** | Pagos por transferencia, separados del efectivo en el cierre | Las ventas pagadas por transferencia quedan impagas en Aronium hasta crearla |
-| Producto-servicio **"Envío"**, código `ENVIO` | Que el total de Aronium coincida con lo cobrado | El envío no se suma (queda en la nota, con aviso) |
+| Forma de pago de las transferencias (`webSales.paymentTypes.bank_transfer`; en el local ya existe: **"Itaú"**) | Pagos por transferencia, separados del efectivo en el cierre | Las ventas pagadas por transferencia quedan impagas en Aronium hasta crearla |
+| Producto-servicio **"Envío"**, código `ENVIO` | Envíos que no tienen un servicio de Aronium con su nombre (los "Delivery <ciudad>" del local sí lo tienen) | El envío no se suma (queda en la nota, con aviso) |
 
 Los nombres se cambian en `config.json` → `webSales`.
 
@@ -117,12 +130,26 @@ Los nombres se cambian en `config.json` → `webSales`.
 
 Para quitarlo: `install.ps1 -Uninstall`.
 
+## Avisos en la PC del local
+
+`avisos.ps1` pone un ícono junto al reloj de Windows. Cuando entra un pedido
+web muestra un aviso ("Pedido web PW-1042-K7 — Juan Pérez — Gs. 1.250.000") y,
+con doble clic, la lista de proformas que esperan que la cajera las marque
+"Pagado". Avisa también los pedidos con error y si el sincronizador dejó de
+responder (más de 10 minutos sin novedades).
+
+El sincronizador corre como tarea del sistema, que no puede mostrar nada en
+pantalla: escribe `avisos.json` en cada pasada y `avisos.ps1` (con el usuario
+que inició sesión) lo lee cada 15 segundos. Lo instala `install.ps1` como
+tarea "Avisos pedidos web - Tienda", que arranca al iniciar sesión.
+
 ## Uso y diagnóstico
 
 - Panel de la tienda → **Aronium**: estado, ventas web y errores, desde cualquier lado.
 - `connector.log`: el registro en la computadora del local.
 - `backups/`: una copia de `pos.db` por día (las últimas 14).
 - `state.json`: lo que el agente recuerda entre reinicios (no tocar).
+- `avisos.json`: lo que muestran los avisos de la PC (lo reescribe cada pasada).
 - `npm run once`: una pasada a mano. `npm test`: pruebas del registro de ventas
   sobre una **copia** de `pos.db` (nunca la base real).
 

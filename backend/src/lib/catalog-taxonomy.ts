@@ -24,8 +24,9 @@ export const CATEGORIES = [
   {
     name: 'Organizadores y accesorios',
     handle: 'organizadores-y-accesorios',
-    description: 'Organizadores de relojes y anteojos, botellas Spartan y herramientas',
+    description: 'Organizadores de relojes y anteojos, mallas de reloj, botellas Spartan y herramientas',
   },
+  { name: 'Ropa', handle: 'ropa', description: 'Remeras, corbatas y ropa interior de Tommy Hilfiger, Nautica, Calvin Klein y más' },
 ] as const
 
 /** Tipos de producto (filtro "Tipo de producto"). */
@@ -44,6 +45,10 @@ export const PRODUCT_TYPES = [
   'Organizador',
   'Botella o vaso',
   'Herramienta',
+  'Malla de reloj',
+  'Remera',
+  'Corbata',
+  'Ropa interior',
   'Accesorio',
 ] as const
 
@@ -83,6 +88,18 @@ export const BRANDS = [
   'Sun+Stone',
   'Club Room',
   'Steve Madden',
+  // Ropa y otras marcas del Aronium del local
+  'Hugo Boss',
+  'Under Armour',
+  'U.S. Polo Assn',
+  'Polo Ralph Lauren',
+  'Baco',
+  'Diesel',
+  'Victorinox',
+  'Alfani',
+  'Nine West',
+  'Ted Baker',
+  'Benyar',
   // Perfumes
   'Afnan',
   'Al Haramain',
@@ -161,6 +178,10 @@ export const GROUP_ALIASES: Record<string, string> = {
   'casio caballeros': 'Casio',
   'casio damas': 'Casio',
   'g-shock': 'Casio',
+  // Grupos del Aronium del local (base del 18/11/2026).
+  'casio edifice': 'Casio',
+  'casio g-shock': 'Casio',
+  'mallas de relojes': 'Organizadores y accesorios',
   perfumes: 'Perfumes y decants',
   perfume: 'Perfumes y decants',
   decants: 'Perfumes y decants',
@@ -206,6 +227,7 @@ export const BRAND_ALIASES: Record<string, string> = {
   'paco rabanne': 'Paco Rabanne',
   'sun stone': 'Sun+Stone',
   levis: "Levi's",
+  qyq: 'Q&Q',
 }
 
 /**
@@ -215,13 +237,20 @@ export const BRAND_ALIASES: Record<string, string> = {
 export const TYPE_KEYWORDS: [RegExp, string][] = [
   [/\bdecants?\b/i, 'Decant'],
   [/\b(perfume|edp|edt|parfum|eau de)\b/i, 'Perfume'],
-  [/\b(lentes|anteojos|gafas|sunglasses)\b/i, 'Lentes de sol'],
+  [/\b(lentes?|anteojos|gafas|sunglasses)\b/i, 'Lentes de sol'],
+  // Mallas sueltas: el nombre empieza con "Malla" ("Casio … Malla Naranja" es un reloj).
+  [/^\s*mallas?\b/i, 'Malla de reloj'],
+  [/\b(remeras?|camisetas?|camisas?|t-?shirt)\b/i, 'Remera'],
+  [/\bcorbatas?\b/i, 'Corbata'],
+  [/\b(boxers?|calzoncillos?)\b/i, 'Ropa interior'],
+  // "Crema" sola es un color ("Dial Crema"): solo productos de limpieza.
+  [/\b(limpiador|limpiadora)\b/i, 'Accesorio'],
   [/\b(organizador|estuche)\b/i, 'Organizador'],
   [/\b(billetera|wallet)\b/i, 'Billetera'],
   [/\b(cinto|cintur[oó]n)\b/i, 'Cinto'],
   [/\b(necess?aire|neceser)\b/i, 'Necessaire'],
   [/\b(cartera|tote|bandolera|porchete)\b/i, 'Cartera'],
-  [/\b(mochila|bolso|ri[nñ]onera|fanny)\b/i, 'Mochila o bolso'],
+  [/\b(mochila|mochilita|bolso|bols[oó]n|bolsók|backpack|crossbody|ri[nñ]onera|fanny)\b/i, 'Mochila o bolso'],
   [/\b(botella|vaso|termo)\b/i, 'Botella o vaso'],
   [/\b(pulsera|brazalete|bracelet|bangle)\b/i, 'Pulsera'],
   [/\b(collar|aros|pendientes|broche|anillo|necklace|earrings)\b/i, 'Joya'],
@@ -256,6 +285,7 @@ export const BRAND_DEFAULT_TYPE: Record<string, string> = {
   'Q&Q': 'Reloj',
   Curren: 'Reloj',
   Skmei: 'Reloj',
+  Benyar: 'Reloj',
   'Armani Exchange': 'Reloj',
   'Ray-Ban': 'Lentes de sol',
   Polaroid: 'Lentes de sol',

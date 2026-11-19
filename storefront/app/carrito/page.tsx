@@ -1,5 +1,6 @@
 'use client'
 
+import { trackingCode } from '@/lib/tracking-code'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { HttpTypes } from '@medusajs/types'
@@ -17,10 +18,12 @@ import StoreImage from '@/components/StoreImage'
 // `complete`. Transferencia o efectivo quedan en la metadata del pedido
 // (`payment_method`), que el panel muestra en el pedido.
 //
-// Formas de entrega: todas las opciones de envío cargadas en el panel
-// (Configuración → Ubicaciones y envíos), por ejemplo "Envío a domicilio",
-// "Encomienda al interior" o "Retiro en el local". Las de retiro (tipo
-// "pickup" o con "retiro" en el nombre) no piden dirección.
+// Formas de entrega: las opciones de envío cargadas en el panel
+// (Configuración → Ubicaciones y envíos). Las "Delivery <ciudad>" (precio por
+// ciudad, mismos nombres que los servicios de Aronium) se muestran juntas,
+// como una sola forma con selector de ciudad. Después, la encomienda al
+// interior (flete a cobrar, sin efectivo) y el retiro en el local (tipo
+// "pickup" o con "retiro" en el nombre), que no pide dirección.
 //
 // Pasarela de pago online: pendiente, la elige el cliente.
 
@@ -46,8 +49,28 @@ function isPickup(option: ShippingOption | null): boolean {
 
 // Envíos por encomienda o al interior: no se puede cobrar en efectivo al
 // entregar, solo transferencia.
+function isParcel(option: ShippingOption | null): boolean {
+  return !!option && /encomienda|interior/i.test(option.name)
+}
+
 function allowsCash(option: ShippingOption | null): boolean {
-  return !option || !/encomienda|interior/i.test(option.name)
+  return !isParcel(option)
+}
+
+const DELIVERY_PREFIX = /^delivery\s+/i
+
+function isDelivery(option: ShippingOption | null): boolean {
+  return !!option && DELIVERY_PREFIX.test(option.name)
+}
+
+/** "Delivery Asunción" → "Asunción". */
+function deliveryCity(option: ShippingOption): string {
+  return option.name.replace(DELIVERY_PREFIX, '').trim()
+}
+
+// Orden: delivery, encomienda, retiro.
+function optionRank(option: ShippingOption): number {
+  return isPickup(option) ? 2 : isParcel(option) ? 1 : 0
 }
 
 // Teléfono de Paraguay: 9 dígitos o más (021 123 456, 0981 123 456, +595…).
@@ -93,6 +116,8 @@ export default function CheckoutPage() {
 
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([])
   const [optionId, setOptionId] = useState<string | null>(null)
+  // Eligió "Delivery" pero todavía no la ciudad (sin ciudad no hay precio).
+  const [deliveryPending, setDeliveryPending] = useState(false)
   const [addressLine, setAddressLine] = useState('')
   const [addressUnit, setAddressUnit] = useState('')
   const [postalCode, setPostalCode] = useState('')
@@ -124,23 +149,43 @@ export default function CheckoutPage() {
     else setOrder((current) => current ?? readPlacedOrder())
   }, [ready, hasItems])
 
-  // Formas de entrega del carrito: primero las que llevan a domicilio, el
-  // retiro al final. Se elige de entrada la primera.
+  // Formas de entrega del carrito: delivery (por ciudad, de la más barata a la
+  // más cara), encomienda y retiro. De entrada queda elegido el delivery, sin
+  // ciudad: hasta que la elija no hay precio de envío.
   useEffect(() => {
     if (!cartId || !hasItems) return
     sdk.store.fulfillment
       .listCartOptions({ cart_id: cartId })
       .then(({ shipping_options }) => {
-        const sorted = [...shipping_options].sort((a, b) => Number(isPickup(a)) - Number(isPickup(b)))
+        const sorted = [...shipping_options].sort(
+          (a, b) => optionRank(a) - optionRank(b) || a.amount - b.amount || a.name.localeCompare(b.name, 'es')
+        )
         setShippingOptions(sorted)
-        setOptionId((current) => (current && sorted.some((o) => o.id === current) ? current : (sorted[0]?.id ?? null)))
+        const hasDelivery = sorted.some(isDelivery)
+        setDeliveryPending(hasDelivery)
+        setOptionId((current) =>
+          current && sorted.some((o) => o.id === current) ? current : hasDelivery ? null : (sorted[0]?.id ?? null)
+        )
       })
       .catch((err) => console.error('[checkout] opciones de envío', err))
   }, [cartId, hasItems])
 
+  const deliveryOptions = shippingOptions.filter(isDelivery)
+  const otherOptions = shippingOptions.filter((o) => !isDelivery(o))
+
   // La forma de entrega elegida se carga en el carrito para que el total la incluya.
   const selectedOption = shippingOptions.find((o) => o.id === optionId) ?? null
+  const deliveryActive = (deliveryPending && !selectedOption) || isDelivery(selectedOption)
   const pickup = isPickup(selectedOption)
+  const chooseOption = (id: string) => {
+    setDeliveryPending(false)
+    setOptionId(id)
+  }
+  const chooseDelivery = () => {
+    if (isDelivery(selectedOption)) return
+    setDeliveryPending(true)
+    setOptionId(null)
+  }
   const cashAllowed = allowsCash(selectedOption)
   useEffect(() => {
     if (!cashAllowed) setPaymentMethod('bank_transfer')
@@ -221,7 +266,13 @@ export default function CheckoutPage() {
       setError(t.phoneInvalid)
       return
     }
-    if (!pickup && (!addressLine.trim() || !city.trim())) {
+    if (deliveryActive && !selectedOption) {
+      setError(t.deliveryCityRequired)
+      return
+    }
+    // En el delivery la ciudad es la elegida (es la que fija el precio).
+    const shipCity = isDelivery(selectedOption) ? deliveryCity(selectedOption!) : city.trim()
+    if (!pickup && (!addressLine.trim() || !shipCity)) {
       setError(t.addressRequired)
       return
     }
@@ -242,7 +293,7 @@ export default function CheckoutPage() {
               address_1: addressLine.trim(),
               address_2: addressUnit.trim() || undefined,
               postal_code: postalCode.trim() || undefined,
-              city: city.trim(),
+              city: shipCity,
             }
           : {}),
       }
@@ -396,22 +447,61 @@ export default function CheckoutPage() {
                 <div>
                   <h2 className={sectionTitleCls}>{t.deliveryMethodTitle}</h2>
                   <div className="grid sm:grid-cols-2 gap-3 mb-5">
-                    {shippingOptions.map((option) => (
+                    {deliveryOptions.length > 0 && (
+                      <label className={optionCardCls(deliveryActive)}>
+                        <input type="radio" name="delivery" checked={deliveryActive} onChange={chooseDelivery} className="accent-ink" />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[0.95rem] font-semibold">{t.deliveryCard}</span>
+                          <span className="block text-[0.82rem] text-muted">{t.deliveryCardHint}</span>
+                        </span>
+                        <span className="text-[0.9rem] text-muted text-right">
+                          {isDelivery(selectedOption)
+                            ? formatMoney(selectedOption!.amount, currency)
+                            : `${t.deliveryFrom} ${formatMoney(Math.min(...deliveryOptions.map((o) => o.amount)), currency)}`}
+                        </span>
+                      </label>
+                    )}
+                    {otherOptions.map((option) => (
                       <label key={option.id} className={optionCardCls(optionId === option.id)}>
                         <input
                           type="radio"
                           name="delivery"
                           checked={optionId === option.id}
-                          onChange={() => setOptionId(option.id)}
+                          onChange={() => chooseOption(option.id)}
                           className="accent-ink"
                         />
-                        <span className="flex-1 text-[0.95rem] font-semibold">{option.name}</span>
+                        <span className="flex-1 text-[0.95rem] font-semibold">{isParcel(option) ? t.parcelName : option.name}</span>
                         <span className="text-[0.9rem] text-muted">
-                          {option.amount > 0 ? formatMoney(option.amount, currency) : t.freeShipping}
+                          {option.amount > 0 ? formatMoney(option.amount, currency) : isParcel(option) ? t.parcelPrice : t.freeShipping}
                         </span>
                       </label>
                     ))}
                   </div>
+
+                  {deliveryActive && (
+                    <div className="mb-4">
+                      <label className="field-label" htmlFor="delivery-city">
+                        {t.deliveryCity}
+                      </label>
+                      <select
+                        id="delivery-city"
+                        value={isDelivery(selectedOption) ? selectedOption!.id : ''}
+                        onChange={(e) => e.target.value && chooseOption(e.target.value)}
+                        className="field"
+                      >
+                        <option value="" disabled>
+                          {t.deliveryCityPlaceholder}
+                        </option>
+                        {deliveryOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {deliveryCity(option)} · {formatMoney(option.amount, currency)}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[0.85rem] text-muted mt-2 mb-0">{t.deliveryOtherCity}</p>
+                    </div>
+                  )}
+                  {isParcel(selectedOption) && <p className="text-[0.9rem] text-muted mt-0 mb-4">{t.parcelHint}</p>}
 
                   {!pickup ? (
                     <div className="space-y-4">
@@ -440,18 +530,20 @@ export default function CheckoutPage() {
                         />
                       </div>
                       <div className="grid sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="field-label" htmlFor="city">
-                            {t.city}
-                          </label>
-                          <input
-                            id="city"
-                            autoComplete="address-level2"
-                            value={city}
-                            onChange={(e) => setCity(e.target.value)}
-                            className="field"
-                          />
-                        </div>
+                        {!deliveryActive && (
+                          <div>
+                            <label className="field-label" htmlFor="city">
+                              {t.city}
+                            </label>
+                            <input
+                              id="city"
+                              autoComplete="address-level2"
+                              value={city}
+                              onChange={(e) => setCity(e.target.value)}
+                              className="field"
+                            />
+                          </div>
+                        )}
                         <div>
                           <label className="field-label" htmlFor="postal-code">
                             {t.postalCode}
@@ -545,7 +637,9 @@ export default function CheckoutPage() {
                   <button type="submit" disabled={submitting || busy || !selectedOption} className="btn btn-dark w-full">
                     {submitting ? t.submitting : `${t.submitOrder} · ${formatMoney(total, currency)}`}
                   </button>
-                  {!selectedOption && <p className="text-[0.9rem] text-muted m-0">{t.shippingLoading}</p>}
+                  {!selectedOption && (
+                    <p className="text-[0.9rem] text-muted m-0">{deliveryActive && shippingOptions.length ? t.deliveryCityRequired : t.shippingLoading}</p>
+                  )}
                   <p className="text-[0.85rem] text-muted m-0">
                     Al enviar el pedido aceptás los{' '}
                     <Link href="/terminos" className="underline hover:text-ink" target="_blank">
@@ -679,7 +773,13 @@ export default function CheckoutPage() {
                   <div className="flex justify-between text-muted">
                     <dt>{t.shippingLine}</dt>
                     <dd className="m-0">
-                      {!hasShippingMethod ? '—' : shippingTotal > 0 ? formatMoney(shippingTotal, currency) : t.freeShipping}
+                      {!hasShippingMethod || !selectedOption
+                        ? '—'
+                        : shippingTotal > 0
+                          ? formatMoney(shippingTotal, currency)
+                          : isParcel(selectedOption)
+                            ? t.parcelPrice
+                            : t.freeShipping}
                     </dd>
                   </div>
                   {discountTotal > 0 && (
@@ -704,14 +804,22 @@ export default function CheckoutPage() {
 
 function OrderPlaced({ order }: { order: PlacedOrder }) {
   const transfer = order.paymentMethod === 'bank_transfer'
+  // El código PW es el que la cajera busca en Aronium (proforma del pedido).
+  const code = order.number ? trackingCode(order.number) : null
+  const ref = code ? `${code} (#${order.number})` : `#${order.number}`
   const message = transfer
-    ? `${brand.whatsapp.greeting} Hice el pedido #${order.number} por ${formatMoney(order.total, order.currency)}. Te paso el comprobante de la transferencia.`
-    : `${brand.whatsapp.greeting} Hice el pedido #${order.number} por ${formatMoney(order.total, order.currency)}, pago en efectivo.`
+    ? `${brand.whatsapp.greeting} Hice el pedido ${ref} por ${formatMoney(order.total, order.currency)}. Te paso el comprobante de la transferencia.`
+    : `${brand.whatsapp.greeting} Hice el pedido ${ref} por ${formatMoney(order.total, order.currency)}, pago en efectivo.`
 
   return (
     <div className="max-w-xl mx-auto text-center py-10">
       <p className="mx-auto mb-5 grid place-items-center w-14 h-14 rounded-full bg-ink text-white text-2xl">✓</p>
       <h1 className="text-[clamp(1.8rem,4vw,2.5rem)] mb-3">{t.orderSuccess.replace('{{number}}', String(order.number))}</h1>
+      {code && (
+        <p className="mb-4">
+          {t.trackingCode}: <strong className="font-mono tracking-wide">{code}</strong>
+        </p>
+      )}
       <p className="text-muted mb-8">{transfer ? t.orderNextTransfer : t.orderNextCash}</p>
 
       {transfer && (

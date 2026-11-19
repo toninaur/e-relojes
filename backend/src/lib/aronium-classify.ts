@@ -23,7 +23,7 @@ export function normalize(text: string): string {
 
 // Para lo que no es reloj, la categoría sale del tipo. Un reloj sin grupo no
 // se sabe si es de caballero o de dama (salvo Casio, que tiene la suya).
-const CATEGORY_BY_TYPE: Record<string, string> = {
+export const CATEGORY_BY_TYPE: Record<string, string> = {
   Perfume: 'Perfumes y decants',
   Decant: 'Perfumes y decants',
   'Lentes de sol': 'Lentes de sol',
@@ -37,7 +37,16 @@ const CATEGORY_BY_TYPE: Record<string, string> = {
   Organizador: 'Organizadores y accesorios',
   'Botella o vaso': 'Organizadores y accesorios',
   Herramienta: 'Organizadores y accesorios',
+  'Malla de reloj': 'Organizadores y accesorios',
+  Accesorio: 'Organizadores y accesorios',
+  Remera: 'Ropa',
+  Corbata: 'Ropa',
+  'Ropa interior': 'Ropa',
 }
+
+// Relojes de marcas que venden de todo (Tommy Hilfiger, Fossil, Armani…) cuyo
+// nombre no dice "reloj": palabras de reloj o el código de modelo de la marca.
+const WATCH_HINT = /\b(dial|bisel|cron[oó]grafo|autom[aá]tico|cuarzo|sumergible|caucho|ac\.? inox|n[uú]meros romanos)\b|\b(17[0-9]{5}|DZ[0-9]{4}|K[0-9][A-Z0-9]{5,}|AR[0-9]{4,5}|AX[0-9]{4}|ES[0-9]{4}|FS[0-9]{4}|ME[0-9]{4}|BQ[0-9]{4}|MK[0-9]{4}|NAP[A-Z0-9]{4,}|USC[0-9]{4,}|TW[0-9][A-Z0-9]{5,}|GW[0-9]{4,})\b/i
 
 /**
  * @param categories nombres de las categorías que existen en la tienda
@@ -49,14 +58,24 @@ export function classify(
   brands: string[]
 ): Classification {
   const name = normalize(item.name)
-  const brand = findBrand(name, brands)
+  // En el local los grupos de Aronium son casi todos marcas ("Curren",
+  // "Armani"): si el nombre no la dice, vale la del grupo.
+  const brand = findBrand(name, brands) ?? (item.group ? findBrand(normalize(item.group), brands, true) : null)
   // Tipo: por palabras del nombre, o el de la marca si vende una sola cosa.
   const keywordType =
-    TYPE_KEYWORDS.find(([pattern]) => pattern.test(item.name))?.[1] ?? (brand ? (BRAND_DEFAULT_TYPE[brand] ?? null) : null)
+    TYPE_KEYWORDS.find(([pattern]) => pattern.test(item.name))?.[1] ??
+    (brand ? (BRAND_DEFAULT_TYPE[brand] ?? null) : null) ??
+    (WATCH_HINT.test(item.name) ? 'Reloj' : null)
 
   let category = item.group ? findCategory(item.group, categories) : null
   if (!category && keywordType && CATEGORY_BY_TYPE[keywordType]) category = CATEGORY_BY_TYPE[keywordType]
   if (!category && brand === 'Casio' && (!keywordType || keywordType === 'Reloj')) category = 'Casio'
+  // Relojes: en el local los de dama dicen "Damas" en el nombre y los de
+  // caballero en general no dicen nada, así que un reloj sin "Damas" va a
+  // Caballeros (si alguno es de dama, se corrige a mano en el panel).
+  if (!category && keywordType === 'Reloj') {
+    category = /\b(damas?|mujer(es)?|ladies|femenino)\b/.test(name) ? 'Damas' : 'Caballeros'
+  }
   if (category && !categories.includes(category)) category = null
 
   const type = keywordType ?? (category ? (CATEGORY_DEFAULT_TYPE[category] ?? null) : null)
@@ -71,7 +90,8 @@ function findCategory(group: string, categories: string[]): string | null {
   return alias ?? null
 }
 
-function findBrand(name: string, brands: string[]): string | null {
+/** @param exact el texto es solo la marca (un grupo de Aronium), no un nombre de producto */
+function findBrand(name: string, brands: string[], exact = false): string | null {
   // Marcas y alias, de la clave más larga a la más corta ("Armani Exchange"
   // antes que "Armani").
   const keys: [string, string][] = [
@@ -80,6 +100,7 @@ function findBrand(name: string, brands: string[]): string | null {
       .filter(([, brand]) => brands.includes(brand))
       .map(([alias, brand]) => [normalize(alias), brand] as [string, string]),
   ].sort((a, b) => b[0].length - a[0].length)
+  if (exact) return keys.find(([key]) => key === name)?.[1] ?? null
 
   // 1) Al principio del nombre: "Tissot PRX", "G-Shock GA-2100", "MK5774".
   for (const [key, brand] of keys) {

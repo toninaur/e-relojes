@@ -9,11 +9,10 @@
     "userName": "",
     "defaultCustomerName": "Walk-in customer",
     "paymentTypes": {
-      "bank_transfer": "Transferencia",
-      "cash_on_delivery": "Cash"
+      "bank_transfer": "Itaú",
+      "cash_on_delivery": "Efectivo"
     },
     "shippingCode": "ENVIO",
-    "orderPrefix": "WEB-",
     "serviceType": 1
   }
 }

@@ -8,6 +8,7 @@
 param([switch]$Uninstall)
 
 $TaskName = 'Sincronizador Aronium - Tienda'
+$AlertsTaskName = 'Avisos pedidos web - Tienda'
 $OldTaskName = 'Conector Aronium - Tienda'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $Root 'config.json'
@@ -15,7 +16,7 @@ $ConfigPath = Join-Path $Root 'config.json'
 $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $IsAdmin) { Write-Error 'Abrí PowerShell como administrador (clic derecho → Ejecutar como administrador) y volvé a correrlo.'; exit 1 }
 
-foreach ($name in @($TaskName, $OldTaskName)) {
+foreach ($name in @($TaskName, $OldTaskName, $AlertsTaskName)) {
   if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $name -Confirm:$false
@@ -62,3 +63,18 @@ Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Se
   -Principal $Principal -Force | Out-Null
 Start-ScheduledTask -TaskName $TaskName
 Write-Host "Listo: '$TaskName' instalado. Arranca con Windows. Registro en $Root\connector.log"
+
+# Avisos de pedidos web junto al reloj de Windows (avisos.ps1): arranca al
+# iniciar sesión cualquier usuario de la PC, con su usuario (los avisos de
+# Windows no se pueden mostrar desde la tarea del sistema).
+$AlertsAction = New-ScheduledTaskAction -Execute 'powershell.exe' `
+  -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Root\avisos.ps1`"" -WorkingDirectory $Root
+$AlertsTrigger = New-ScheduledTaskTrigger -AtLogOn
+$AlertsSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+  -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+# S-1-5-32-545 = grupo "Usuarios" (sirve con Windows en cualquier idioma).
+$AlertsPrincipal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
+Register-ScheduledTask -TaskName $AlertsTaskName -Action $AlertsAction -Trigger $AlertsTrigger -Settings $AlertsSettings `
+  -Principal $AlertsPrincipal -Force | Out-Null
+Start-ScheduledTask -TaskName $AlertsTaskName -ErrorAction SilentlyContinue
+Write-Host "Listo: '$AlertsTaskName' instalado. Ícono de avisos junto al reloj al iniciar sesión."

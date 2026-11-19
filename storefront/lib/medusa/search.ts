@@ -27,12 +27,17 @@ export const SORTS = {
 export type SortKey = keyof typeof SORTS
 export const DEFAULT_SORT: SortKey = 'nuevos'
 
-/** Franjas de precio del filtro (Gs.). `to` no incluido. */
+/**
+ * Franjas de precio del filtro (Gs.). `to` no incluido. Armadas con los precios
+ * reales del local (nov. 2026): la mitad del catálogo está entre 200.000 y
+ * 400.000, y pocos pasan de 1.500.000.
+ */
 export const PRICE_RANGES = [
-  { key: 'hasta-1m', to: 1_000_000 },
-  { key: '1m-2m', from: 1_000_000, to: 2_000_000 },
-  { key: '2m-3_5m', from: 2_000_000, to: 3_500_000 },
-  { key: 'mas-3_5m', from: 3_500_000 },
+  { key: 'hasta-200k', to: 200_000 },
+  { key: '200k-400k', from: 200_000, to: 400_000 },
+  { key: '400k-800k', from: 400_000, to: 800_000 },
+  { key: '800k-1_5m', from: 800_000, to: 1_500_000 },
+  { key: 'mas-1_5m', from: 1_500_000 },
 ] as const
 
 export interface CatalogSearch {

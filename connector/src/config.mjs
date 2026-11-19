@@ -40,21 +40,23 @@ export function loadConfig() {
     intervalMinutes: Math.min(MAX_INTERVAL, Math.max(MIN_INTERVAL, Math.round(Number(raw.intervalMinutes) || DEFAULT_INTERVAL))),
     backupDir: raw.backupDir ? expand(raw.backupDir) : path.join(ROOT, 'backups'),
     keepBackups: Math.max(1, Number(raw.keepBackups) || 14),
-    // Ventas web → Aronium (docs/sincronizador-aronium.md, decisiones D1-D6).
+    // Pedidos web → Aronium (docs/sincronizador-aronium.md, punto 4.2 y
+    // decisiones). El número de orden de la proforma y la venta es el código
+    // de seguimiento PW-… que manda la tienda.
     webSales: {
       enabled: web.enabled !== false,
-      // Número de pedido en Aronium: "WEB-123".
-      orderPrefix: String(web.orderPrefix ?? 'WEB-'),
       // Usuario de Aronium que figura en la venta (nombre o usuario). Vacío:
       // el usuario principal (el historial de ventas de Aronium muestra solo
       // las del usuario con la sesión abierta).
       userName: String(web.userName ?? ''),
-      // Cliente cuando no dejó RUC (el "consumidor final" de Aronium).
+      // El "consumidor final" de Aronium: una venta suya nunca se toma como
+      // duplicado de un pedido web.
       defaultCustomerName: String(web.defaultCustomerName ?? 'Walk-in customer'),
-      // Forma de pago de Aronium según lo que eligió en la tienda.
+      // Forma de pago de Aronium según lo que eligió en la tienda (en el local,
+      // las transferencias se cargan como "Itaú").
       paymentTypes: {
-        bank_transfer: 'Transferencia',
-        cash_on_delivery: 'Cash',
+        bank_transfer: 'Itaú',
+        cash_on_delivery: 'Efectivo',
         ...(web.paymentTypes ?? {}),
       },
       // Producto-servicio de Aronium para el costo de envío.

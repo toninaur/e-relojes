@@ -145,7 +145,7 @@ export default async function ProductPage({ params }: { params: Params }) {
               )}
 
               <ul className="mt-8 pt-6 border-t border-line text-[0.95rem] text-muted space-y-1.5">
-                <li>🚚 Envíos a todo el país, o retiro gratis en el local.</li>
+                <li>🚚 Delivery en Asunción y alrededores desde Gs. 10.000, encomienda al interior o retiro gratis en el local.</li>
                 <li>🎁 ¿Es un regalo? Marcalo al hacer el pedido y lo preparamos para la ocasión.</li>
               </ul>
             </div>

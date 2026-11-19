@@ -39,14 +39,15 @@ export const brand = {
     doorHint: 'Buscá el portón gris con el cartel de e-relojes y el número 968.',
   },
   // Datos para pagar por transferencia: se muestran al confirmar el pedido.
-  // DEMO: completar con la cuenta real del cliente.
+  // Cuenta confirmada por e-relojes el 19/11/2026. En Aronium estos pagos se
+  // cargan con la forma de pago "Itaú" (connector/config.json).
   payment: {
     transferInstructions: [
-      'Banco: (a completar)',
-      'Titular: e-relojes Paraguay',
-      'Cuenta: (a completar)',
-      'RUC / CI: (a completar)',
-      'Alias: (a completar)',
+      'Banco: Itaú',
+      'Caja de ahorro: 720204760',
+      'Titular: Gianni Iliou',
+      'C.I.: 3.520.390',
+      'Alias (celular): +595992295298',
     ].join('\n'),
   },
   reviews: {

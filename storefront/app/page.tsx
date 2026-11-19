@@ -5,11 +5,13 @@ import { formatMoney } from '@/lib/format'
 import { listBrands, listCategories, listCombos, listFeaturedProducts } from '@/lib/medusa/catalog'
 import { getContent } from '@/lib/medusa/content'
 import { listProducts } from '@/lib/medusa/products'
+import { DEFAULT_SORT, searchCatalog } from '@/lib/medusa/search'
 import { ProductGrid } from '@/components/ProductCard'
 import { listBanners } from '@/lib/medusa/banners'
 import { jsonLd, storeJsonLd } from '@/lib/seo'
 import FeaturedProducts from '@/components/FeaturedProducts'
 import HeroCarousel, { type HeroSlide } from '@/components/HeroCarousel'
+import { Shirt } from 'lucide-react'
 import { OrganizerIcon, ThermosIcon } from '@/components/icons'
 import StoreImage from '@/components/StoreImage'
 import BrandMarquee from '@/components/BrandMarquee'
@@ -26,7 +28,7 @@ function SectionHead({ title, text, dark = false }: { title: string; text?: stri
 const NEW_ARRIVALS = 4
 
 export default async function HomePage() {
-  const [banners, newArrivals, featured, categories, brands, perfumesContent] = await Promise.all([
+  const [banners, newArrivals, featured, allCategories, brands, perfumesContent, catalog] = await Promise.all([
     listBanners(),
     // Los últimos publicados (la tienda solo devuelve productos publicados).
     listProducts({ order: '-created_at', limit: NEW_ARRIVALS }).then((r) => r.products),
@@ -34,7 +36,14 @@ export default async function HomePage() {
     listCategories(),
     listBrands(),
     getContent('portada-perfumes'),
+    // Solo para saber qué categorías tienen productos publicados.
+    searchCatalog({ facets: {}, sort: DEFAULT_SORT, limit: 1, offset: 0 }),
   ])
+  // Categorías y tarjetas sin productos publicados no se muestran (ej. "Ropa"
+  // mientras no tenga fotos). Si el buscador falla, se muestran todas.
+  const withProducts = new Set(catalog.facets.category.filter((f) => f.count > 0).map((f) => f.value))
+  const categories = catalog.failed ? allCategories : allCategories.filter((c) => withProducts.has(c.name))
+  const moreItems = landing.more.items.filter((item) => categories.some((c) => c.handle === item.category))
   // Sección "Perfumes y decants": textos, fotos y combos del panel → Portada.
   const perfumes = perfumesContent?.data ?? null
   const combos = perfumesContent
@@ -202,11 +211,12 @@ export default async function HomePage() {
       )}
 
       {/* Más que relojes */}
+      {moreItems.length > 0 && (
       <section className="section-y bg-white border-y border-line">
         <div className="wrap">
           <SectionHead title={landing.more.title} text={landing.more.text} />
           <div data-reveal-stagger className="grid gap-4 grid-cols-2 min-[980px]:grid-cols-4">
-            {landing.more.items.map((item) => {
+            {moreItems.map((item) => {
               const body = (
                 <>
                   {'image' in item && item.image ? (
@@ -220,7 +230,13 @@ export default async function HomePage() {
                     />
                   ) : (
                     <div className="aspect-[4/3] grid place-items-center bg-ink text-white" aria-hidden>
-                      {'icon' in item && item.icon === 'thermos' ? <ThermosIcon className="w-16 h-16" /> : <OrganizerIcon className="w-16 h-16" />}
+                      {'icon' in item && item.icon === 'shirt' ? (
+                        <Shirt className="w-16 h-16" strokeWidth={1.4} />
+                      ) : 'icon' in item && item.icon === 'thermos' ? (
+                        <ThermosIcon className="w-16 h-16" />
+                      ) : (
+                        <OrganizerIcon className="w-16 h-16" />
+                      )}
                     </div>
                   )}
                   <div className="px-[1.1rem] pt-4 pb-5">
@@ -247,6 +263,7 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+      )}
 
       {/* Cómo comprar */}
       <section id="comprar" className="section-y">

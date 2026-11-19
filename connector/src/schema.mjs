@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 
-// Control de versión de la base de Aronium antes de escribir ventas (regla 8:
+// Control de versión de la base de Aronium antes de escribir proformas y ventas (regla 8:
 // "ante la duda, no escribe"). Aronium no documenta su base y una
 // actualización puede cambiarla. El agente compara con la estructura que
 // conoce (Aronium Lite 1.52, 78 migraciones, noviembre de 2026):
@@ -20,7 +20,8 @@ const KNOWN = {
   PaymentType: ['Id', 'Name', 'IsEnabled', 'MarkAsPaid'],
   Stock: ['Id', 'ProductId', 'WarehouseId', 'Quantity'],
   Counter: ['Name', 'Value'],
-  Customer: ['Id', 'Code', 'Name', 'TaxNumber', 'DateCreated', 'DateUpdated', 'Email', 'PhoneNumber', 'IsEnabled', 'IsCustomer', 'IsSupplier'],
+  Customer: ['Id', 'Code', 'Name', 'TaxNumber', 'Address', 'PostalCode', 'City', 'CountryId', 'DateCreated', 'DateUpdated', 'Email', 'PhoneNumber', 'IsEnabled', 'IsCustomer', 'IsSupplier'],
+  Country: ['Id', 'Name', 'Code'],
   Product: ['Id', 'Name', 'Code', 'Price', 'IsTaxInclusivePrice', 'IsService', 'Cost'],
   ProductTax: ['ProductId', 'TaxId'],
   Tax: ['Id', 'Name', 'Rate', 'IsFixed', 'IsEnabled'],
@@ -52,7 +53,7 @@ export function checkSchema(dbPath) {
     if (problems.length) {
       return {
         ok: false,
-        reason: `Esta versión de Aronium cambió su base (${problems.join('; ')}). El conector sigue copiando stock y precios, pero no registra ventas web hasta actualizarlo.`,
+        reason: `Esta versión de Aronium cambió su base (${problems.join('; ')}). El conector sigue copiando stock y precios, pero no registra pedidos web hasta actualizarlo.`,
       }
     }
     return { ok: true }
