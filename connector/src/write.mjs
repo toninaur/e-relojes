@@ -28,6 +28,15 @@ import { productByCode } from './aronium.mjs'
 /** Para comparar nombres: sin tildes, mayúsculas ni espacios de más. */
 const fold = (text) => String(text ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/\s+/g, ' ').trim().toLowerCase()
 
+/**
+ * Teléfono comparable: solo números, sin el 595 de Paraguay ni el 0 inicial
+ * ("0981 444 555", "+595 981 444555" → "981444555"). Menos de 6 números: nada.
+ */
+function phoneKey(phone) {
+  const digits = String(phone ?? '').replace(/\D/g, '').replace(/^595/, '').replace(/^0+/, '')
+  return digits.length >= 6 ? digits : null
+}
+
 const QUOTE = '230'
 const SALE = '200'
 const REFUND = '220'
@@ -90,6 +99,15 @@ export function createWriter(config) {
     } finally {
       db.close()
     }
+  }
+
+  /** ServiceType de las ventas: el de config.json o el que más usa la caja. */
+  function saleServiceType(db, saleTypeId) {
+    if (web.serviceType !== null && Number.isFinite(web.serviceType)) return web.serviceType
+    const row = db
+      .prepare('SELECT ServiceType FROM Document WHERE DocumentTypeId = ? GROUP BY ServiceType ORDER BY count(*) DESC LIMIT 1')
+      .get(saleTypeId)
+    return Number(row?.ServiceType ?? 0)
   }
 
   function docType(db, code) {
@@ -178,6 +196,17 @@ export function createWriter(config) {
     let found = null
     if (ruc) found = db.prepare("SELECT Id FROM Customer WHERE replace(coalesce(TaxNumber,''),' ','') = ? ORDER BY Id LIMIT 1").get(ruc)
     if (!found && email) found = db.prepare("SELECT Id FROM Customer WHERE lower(trim(coalesce(Email,''))) = ? ORDER BY Id LIMIT 1").get(email)
+    // Sin RUC ni email (el email es opcional en la tienda): mismo teléfono y
+    // mismo nombre. Solo el teléfono no alcanza: una familia puede compartirlo.
+    const phone = phoneKey(c.phone)
+    if (!found && !ruc && !email && phone) {
+      const name = fold(data.Name)
+      found =
+        db
+          .prepare("SELECT Id, Name, PhoneNumber FROM Customer WHERE trim(coalesce(PhoneNumber, '')) <> '' AND Id <> 1 ORDER BY Id")
+          .all()
+          .find((r) => phoneKey(r.PhoneNumber) === phone && fold(r.Name) === name) ?? null
+    }
 
     const now = stamp()
     if (found) {
@@ -533,7 +562,7 @@ export function createWriter(config) {
         discountType: q.DiscountType,
         discountApplyRule: q.DiscountApplyRule,
         paidStatus: pay.id ? PAID : UNPAID,
-        serviceType: web.serviceType,
+        serviceType: saleServiceType(db, sale.Id),
       })
       for (const it of items) {
         copyItem(db, it, documentId)

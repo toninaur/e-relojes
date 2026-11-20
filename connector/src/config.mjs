@@ -21,7 +21,8 @@ export function loadConfig() {
   if (!fs.existsSync(CONFIG_PATH)) fail(`Falta ${CONFIG_PATH}. Copiá config.example.json a config.json y completalo.`)
   let raw
   try {
-    raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
+    // Sin BOM: el Bloc de notas viejo y PowerShell 5 lo agregan al guardar.
+    raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8').replace(/^\uFEFF/, ''))
   } catch (error) {
     fail(`config.json no es válido (${error.message}). En las rutas usá / o \\\\ en vez de \\.`)
   }
@@ -61,8 +62,9 @@ export function loadConfig() {
       },
       // Producto-servicio de Aronium para el costo de envío.
       shippingCode: String(web.shippingCode ?? 'ENVIO'),
-      // Tipo de servicio de Aronium: el mismo que usan las ventas de la caja.
-      serviceType: Number(web.serviceType ?? 1),
+      // Tipo de servicio de Aronium. Sin valor: el que más usan las ventas de
+      // la caja (0 en el local; 1 en el Aronium de desarrollo).
+      serviceType: web.serviceType === undefined || web.serviceType === null || web.serviceType === '' ? null : Number(web.serviceType),
     },
   }
   if (!cfg.storeUrl) fail('config.json: falta storeUrl.')

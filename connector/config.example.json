@@ -7,12 +7,11 @@
   "webSales": {
     "enabled": true,
     "userName": "",
-    "defaultCustomerName": "Walk-in customer",
+    "defaultCustomerName": "Unknown",
     "paymentTypes": {
       "bank_transfer": "Itaú",
       "cash_on_delivery": "Efectivo"
     },
-    "shippingCode": "ENVIO",
-    "serviceType": 1
+    "shippingCode": "ENVIO"
   }
 }

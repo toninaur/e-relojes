@@ -28,7 +28,7 @@ import { AroniumDataError, createWriter, isTransient } from './write.mjs'
 //   node src/index.mjs          corre en bucle (lo que usa la tarea programada)
 //   node src/index.mjs --once   una sola pasada completa y termina
 
-const VERSION = '0.8.1'
+const VERSION = '0.8.2'
 const FULL_EVERY_MINUTES = 30
 const IMAGE_BATCH_SIZE = 10
 
@@ -135,8 +135,8 @@ async function doWebSales(work, alerts) {
   for (const job of work) {
     const code = job.tracking_code
     const label = `Pedido web #${job.payload?.display_id ?? job.id} (${code})`
+    let result = null
     try {
-      let result = null
       if (job.action === 'watch') {
         // Lectura: ¿la cajera marcó la proforma "Pagado"?
         const st = writer.quoteStatus(job.aronium_quote_number, code)
@@ -166,8 +166,6 @@ async function doWebSales(work, alerts) {
       } else {
         continue
       }
-      lastReported.delete(job.id)
-      await report(job.id, result)
     } catch (error) {
       if (isTransient(error)) {
         // La caja estaba grabando: se reintenta en la pasada siguiente.
@@ -182,7 +180,13 @@ async function doWebSales(work, alerts) {
       log(`ERROR ${label}: ${message}`)
       const action = job.action === 'watch' ? 'invoice' : job.action
       await report(job.id, { action, ok: false, error: message })
+      continue
     }
+    // Fuera del try: lo escrito en Aronium está bien aunque no se pueda avisar
+    // a la tienda (se cortó internet). El resultado queda en state.json y se
+    // manda en la pasada siguiente; no se convierte en un error del pedido.
+    lastReported.delete(job.id)
+    await report(job.id, result)
   }
 }
 

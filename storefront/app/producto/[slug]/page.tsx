@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { absoluteUrl } from '@/lib/brand'
+import { absoluteUrl, brand } from '@/lib/brand'
 import { getProductBySlug, listProducts } from '@/lib/medusa/products'
 import { listBrands, listCategories } from '@/lib/medusa/catalog'
 import ProductGallery from '@/components/ProductGallery'
@@ -23,7 +23,12 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   const name = product.name
   // Al compartir por WhatsApp o Instagram, la vista previa muestra el precio.
   const price = product.price > 0 ? formatMoney(product.price, product.currency) : null
-  const detail = product.description ?? (product.specs.join(' · ') || null)
+  // Sin descripción ni características (casi todo lo que viene de Aronium), una
+  // frase con la tienda: Google y WhatsApp no muestran solo el precio.
+  const detail =
+    product.description ??
+    (product.specs.join(' · ') ||
+      `${name} en ${brand.name}, ${brand.location.city}: delivery, envío al interior o retiro en el local.`)
   const description = [price, detail].filter(Boolean).join(' · ')
   const image = product.images.slice(0, 1)
   return {

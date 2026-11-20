@@ -18,12 +18,18 @@ const ARRAY_FIELDS = new Set<FacetField>(['category', 'color', 'strap'])
 const PRICE_FIELD = 'min_price_pyg'
 const ON_SALE_FIELD = 'on_sale_pyg'
 
+// Cada orden termina en modelo y título para desempatar: muchos productos se
+// cargaron juntos (misma fecha) o tienen el mismo precio, y sin desempate el
+// orden entre páginas no es estable (productos repetidos en dos páginas y
+// otros que nunca aparecen).
+const TIEBREAK = { model_sort: 'ASC', title: 'ASC' } as const
+
 export const SORTS = {
-  nuevos: { label: 'Más nuevos', order: { created_at: 'DESC' } },
-  'precio-asc': { label: 'Menor precio', order: { [PRICE_FIELD]: 'ASC' } },
-  'precio-desc': { label: 'Mayor precio', order: { [PRICE_FIELD]: 'DESC' } },
+  nuevos: { label: 'Más nuevos', order: { created_at: 'DESC', ...TIEBREAK } },
+  'precio-asc': { label: 'Menor precio', order: { [PRICE_FIELD]: 'ASC', ...TIEBREAK } },
+  'precio-desc': { label: 'Mayor precio', order: { [PRICE_FIELD]: 'DESC', ...TIEBREAK } },
   // Por modelo, sin la marca (campo model_sort del índice: backend/src/search/product.ts).
-  nombre: { label: 'Nombre (A-Z)', order: { model_sort: 'ASC' } },
+  nombre: { label: 'Nombre (A-Z)', order: { model_sort: 'ASC', title: 'ASC' } },
 } as const
 export type SortKey = keyof typeof SORTS
 export const DEFAULT_SORT: SortKey = 'nuevos'
