@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { loadConfig } from './config.mjs'
+import { findPaymentType } from './write.mjs'
 
 // Deja Aronium listo para registrar ventas web, sin buscar menús. Lo corre
 // solo install.ps1 (o a mano: npm run setup). Funciona con Aronium abierto o
@@ -36,6 +37,7 @@ console.log(`Copia de respaldo: ${backup}`)
 
 const db = new DatabaseSync(config.aroniumDb, { timeout: 5000 })
 const done = []
+const warnings = []
 try {
   db.exec('BEGIN IMMEDIATE')
 
@@ -47,8 +49,14 @@ try {
 
   // 2. Forma de pago de las transferencias.
   const transfer = web.paymentTypes.bank_transfer
-  if (db.prepare('SELECT Id FROM PaymentType WHERE lower(Name) = lower(?)').get(transfer)) {
-    done.push(`Forma de pago "${transfer}": ya existía.`)
+  // Sin importar tildes: "Itau" en config.json es la "Itaú" de la caja (no
+  // se crea otra).
+  const existing = findPaymentType(db, transfer, { includeDisabled: true })
+  if (existing && !Number(existing.IsEnabled)) {
+    // Desactivada por el local: no se activa sola (la decisión es de ellos).
+    warnings.push(`La forma de pago "${existing.Name}" existe pero está DESACTIVADA en Aronium: activala, o las ventas por transferencia van a quedar sin pago registrado.`)
+  } else if (existing) {
+    done.push(`Forma de pago "${existing.Name}": ya existía.`)
   } else {
     const ordinal = Number(db.prepare('SELECT coalesce(max(Ordinal), 0) AS o FROM PaymentType').get().o) + 1
     const card = db.prepare("SELECT * FROM PaymentType WHERE lower(Name) = 'card'").get()
@@ -90,6 +98,7 @@ try {
   db.close()
 }
 for (const line of done) console.log(`✔ ${line}`)
+for (const line of warnings) console.log(`⚠ ${line}`)
 console.log(aroniumOpen ? 'Listo. Aronium está abierto: los cambios se ven la próxima vez que se abra.' : 'Listo.')
 
 function aroniumRunning() {

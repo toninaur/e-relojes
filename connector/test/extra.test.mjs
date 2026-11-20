@@ -13,7 +13,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { after, before, describe, it } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { productByCode, readImages, readProducts } from '../src/aronium.mjs'
-import { AroniumDataError, createWriter, PAID, UNPAID } from '../src/write.mjs'
+import { AroniumDataError, createWriter, findPaymentType, PAID, UNPAID } from '../src/write.mjs'
 
 const SOURCE = process.env.ARONIUM_TEST_DB ?? path.join(process.env.LOCALAPPDATA ?? '', 'Aronium', 'Data', 'pos.db')
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aronium-extra-'))
@@ -287,6 +287,20 @@ describe('pagos y cambios de la cajera', () => {
     const sale = byNumber(s.aronium_number)
     assert.equal(sale.PaidStatus, UNPAID)
     assert.equal(one('SELECT count(*) AS n FROM Payment WHERE DocumentId = ?', sale.Id).n, 0)
+  })
+
+  it('forma de pago escrita sin tilde ni mayúsculas ("itau") encuentra "Itaú"; una desactivada no se usa pero se ve', () => {
+    db.exec("INSERT INTO PaymentType (Name, IsCustomerRequired, IsFiscal, IsSlipRequired, IsChangeAllowed, Ordinal, IsEnabled, IsQuickPayment, OpenCashDrawer, MarkAsPaid) VALUES ('Banco Ñandú Extra', 0, 1, 0, 0, 97, 1, 0, 0, 1)")
+    assert.equal(findPaymentType(db, '  banco nandu   extra ')?.Name, 'Banco Ñandú Extra')
+    assert.equal(findPaymentType(db, 'apagada extra'), null)
+    assert.equal(findPaymentType(db, 'apagada extra', { includeDisabled: true })?.Name, 'Apagada extra')
+    // El agente la usa con el nombre como esté en config.json.
+    const w = createWriter({ ...baseConfig, webSales: { ...baseConfig.webSales, paymentTypes: { bank_transfer: 'BANCO NANDU EXTRA' } } })
+    const q = w.writeQuote(payload(7038, [line(skus[0])]), code(7038))
+    markPaid(q.quote_number)
+    const s = w.invoiceQuote(q.quote_number, payload(7038, [line(skus[0])]), code(7038))
+    assert.equal(s.warning, undefined)
+    assert.equal(one('SELECT pt.Name FROM Payment p JOIN PaymentType pt ON pt.Id = p.PaymentTypeId WHERE p.DocumentId = ?', byNumber(s.aronium_number).Id).Name, 'Banco Ñandú Extra')
   })
 
   it('cantidad 3 con un total que no se divide justo: el total del renglón es el cobrado', () => {

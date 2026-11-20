@@ -4,8 +4,9 @@
 # conector y con el usuario que usa Aronium.
 #
 #   powershell -ExecutionPolicy Bypass -File install.ps1             instalar
+#   powershell -ExecutionPolicy Bypass -File install.ps1 -Prueba     solo revisar (no instala ni toca nada)
 #   powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall  quitar
-param([switch]$Uninstall)
+param([switch]$Uninstall, [switch]$Prueba)
 
 $TaskName = 'Sincronizador Aronium - Tienda'
 $AlertsTaskName = 'Avisos pedidos web - Tienda'
@@ -14,6 +15,16 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $Root 'config.json'
 
 $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+# -Prueba: revisa todo (Node, config.json, Aronium, la tienda, el reloj) sin
+# instalar ni escribir nada. No hace falta ser administrador.
+if ($Prueba) {
+  $Node = (Get-Command node -ErrorAction SilentlyContinue).Source
+  if (-not $Node) { Write-Error 'No se encontró Node.js. Instalá Node 22.13 o más nuevo (nodejs.org, versión LTS).'; exit 1 }
+  & $Node --disable-warning=ExperimentalWarning (Join-Path $Root 'src\check.mjs')
+  exit $LASTEXITCODE
+}
+
 if (-not $IsAdmin) { Write-Error 'Abrí PowerShell como administrador (clic derecho → Ejecutar como administrador) y volvé a correrlo.'; exit 1 }
 
 foreach ($name in @($TaskName, $OldTaskName, $AlertsTaskName)) {
@@ -29,10 +40,15 @@ if (-not $Node) { Write-Error 'No se encontró Node.js. Instalá Node 22.13 o m�
 $Version = [version]((& $Node -v).TrimStart('v'))
 if ($Version -lt [version]'22.13.0') { Write-Error "Node $Version es viejo: hace falta 22.13 o más nuevo."; exit 1 }
 if (-not (Test-Path $ConfigPath)) { Write-Error 'Falta config.json (copiá config.example.json y completalo).'; exit 1 }
+# OneDrive (Escritorio, Documentos) bloquea los archivos mientras sincroniza.
+if ($Root -match 'OneDrive') { Write-Warning "La carpeta está dentro de OneDrive ($Root). Conviene moverla a C:\SincronizadorAronium y volver a instalar." }
 
 # La tarea corre con la cuenta del sistema, que tiene otra carpeta
 # %LOCALAPPDATA%: se fija la ruta real de la base de Aronium de este usuario.
-$Config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+# -Encoding UTF8: sin esto PowerShell 5 lee "Itaú" como "ItaÃº" y, al guardar
+# abajo, la forma de pago queda mal escrita (las ventas por transferencia
+# saldrían sin pago y el setup crearía una forma de pago "ItaÃº").
+$Config = Get-Content $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $Db = if ($Config.aroniumDb) { [Environment]::ExpandEnvironmentVariables(($Config.aroniumDb -replace '/', '\')) } else { Join-Path $env:LOCALAPPDATA 'Aronium\Data\pos.db' }
 if (-not (Test-Path $Db)) { Write-Error "No se encontró la base de Aronium en $Db. Revisá aroniumDb en config.json."; exit 1 }
 if ($Config.aroniumDb -ne $Db) {
@@ -41,6 +57,10 @@ if ($Config.aroniumDb -ne $Db) {
   [IO.File]::WriteAllText($ConfigPath, ($Config | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
   Write-Host "config.json: aroniumDb = $Db"
 }
+
+# Revisión completa antes de tocar nada (la misma que -Prueba).
+& $Node --disable-warning=ExperimentalWarning (Join-Path $Root 'src\check.mjs')
+if ($LASTEXITCODE -ne 0) { Write-Error 'Hay cosas para arreglar (las marcadas con ✖ arriba). No se instaló nada.'; exit 1 }
 
 # Aronium listo para las ventas web (forma de pago y envío): crea
 # solo lo que falte, con copia de respaldo antes.
@@ -53,7 +73,14 @@ if ($LASTEXITCODE -ne 0) { Write-Error 'La prueba falló: revisá connector.log.
 
 $Action = New-ScheduledTaskAction -Execute $Node `
   -Argument "--disable-warning=ExperimentalWarning `"$Root\src\index.mjs`"" -WorkingDirectory $Root
-$Trigger = New-ScheduledTaskTrigger -AtStartup
+# Arranca con Windows y, además, cada 5 minutos: "reiniciar si falla" de
+# Windows solo actúa si la tarea no arranca, no si el programa se cierra
+# después. Con IgnoreNew, si ya está corriendo no se abre otro; si se cerró,
+# vuelve solo en 5 minutos.
+$Trigger = @(
+  (New-ScheduledTaskTrigger -AtStartup),
+  (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5))
+)
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
   -StartWhenAvailable -MultipleInstances IgnoreNew
@@ -61,8 +88,19 @@ $Principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccou
 
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings `
   -Principal $Principal -Force | Out-Null
+$Started = Get-Date
 Start-ScheduledTask -TaskName $TaskName
-Write-Host "Listo: '$TaskName' instalado. Arranca con Windows. Registro en $Root\connector.log"
+
+# Verificación: la tarea quedó corriendo y el agente escribió que arrancó.
+Start-Sleep -Seconds 15
+$State = (Get-ScheduledTask -TaskName $TaskName).State
+$LogPath = Join-Path $Root 'connector.log'
+$Running = $State -eq 'Running' -and (Test-Path $LogPath) -and ((Get-Item $LogPath).LastWriteTime -ge $Started)
+if ($Running) {
+  Write-Host "Listo: '$TaskName' instalado y corriendo. Arranca con Windows. Registro en $LogPath"
+} else {
+  Write-Warning "La tarea '$TaskName' quedó instalada pero no se ve corriendo (estado: $State). Revisá $LogPath y el Programador de tareas."
+}
 
 # Avisos de pedidos web junto al reloj de Windows (avisos.ps1): arranca al
 # iniciar sesión cualquier usuario de la PC, con su usuario (los avisos de

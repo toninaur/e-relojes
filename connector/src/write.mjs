@@ -47,6 +47,19 @@ export const UNPAID = 1
 
 export class AroniumDataError extends Error {}
 
+/**
+ * Forma de pago por nombre, sin importar tildes ni mayúsculas ("Itau" en
+ * config.json encuentra "Itaú"). Por defecto solo las activas; con
+ * `includeDisabled`, también las desactivadas (para avisar en vez de crear otra).
+ * @returns {{ Id: number, Name: string, IsEnabled: number } | null}
+ */
+export function findPaymentType(db, name, { includeDisabled = false } = {}) {
+  const key = fold(name)
+  if (!key) return null
+  const rows = db.prepare('SELECT Id, Name, IsEnabled FROM PaymentType ORDER BY IsEnabled DESC, Id').all()
+  return rows.find((r) => fold(r.Name) === key && (includeDisabled || Number(r.IsEnabled) === 1)) ?? null
+}
+
 export function isTransient(error) {
   // SQLITE_BUSY (5) / SQLITE_LOCKED (6): otra conexión (la caja) está escribiendo.
   return error?.errcode === 5 || error?.errcode === 6 || /database is locked|SQLITE_BUSY/i.test(String(error?.message))
@@ -232,7 +245,7 @@ export function createWriter(config) {
 
   function paymentType(db, method) {
     const name = web.paymentTypes[method ?? ''] ?? web.paymentTypes.bank_transfer
-    const find = (n) => db.prepare('SELECT Id FROM PaymentType WHERE IsEnabled = 1 AND lower(Name) = lower(?)').get(n)?.Id ?? null
+    const find = (n) => findPaymentType(db, n)?.Id ?? null
     // El efectivo se llama "Cash" en el Aronium en inglés y "Efectivo" en el
     // del local: vale cualquiera de los dos si el configurado no está.
     for (const n of [name, ...(method === 'cash_on_delivery' ? ['Efectivo', 'Cash'] : [])]) {

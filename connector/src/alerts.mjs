@@ -12,14 +12,16 @@ import { ROOT } from './config.mjs'
 //   "pending":  [{ "code": "PW-1042-K7", "number": 1042, "customer": "Juan Pérez",
 //                  "total": 1250000, "currency": "PYG", "quote": "26-230-000012",
 //                  "created_at": "…" }],          ← proformas esperando "Pagado"
-//   "errors":   [{ "code": "PW-1043-AB", "message": "…" }]
+//   "errors":   [{ "code": "PW-1043-AB", "message": "…" }],
+//   "blocked":  "El reloj de esta PC está…"   ← por qué no registra pedidos (o null)
 // }
 
 export const ALERTS_PATH = path.join(ROOT, 'avisos.json')
 
-/** @param {{ pending: object[], errors: object[] }} alerts */
+/** @param {{ pending: object[], errors: object[], blocked?: string | null, interval_minutes?: number }} alerts */
 export function writeAlerts(alerts) {
-  const data = { updated_at: new Date().toISOString(), pending: alerts.pending, errors: alerts.errors }
+  // interval_minutes: el programa de avisos sabe cada cuánto esperar novedades.
+  const data = { updated_at: new Date().toISOString(), interval_minutes: alerts.interval_minutes ?? null, pending: alerts.pending, errors: alerts.errors, blocked: alerts.blocked ?? null }
   const tmp = `${ALERTS_PATH}.tmp`
   try {
     fs.writeFileSync(tmp, JSON.stringify(data, null, 1))

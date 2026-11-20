@@ -31,7 +31,7 @@ const server = http.createServer(async (req, res) => {
   const entry = { method: req.method, url: req.url, auth: req.headers.authorization, body: body ? JSON.parse(body) : null }
   requests.push(entry)
   const out = (await handler(entry)) ?? defaults(entry)
-  res.writeHead(out.status ?? 200, { 'content-type': 'application/json' })
+  res.writeHead(out.status ?? 200, { 'content-type': 'application/json', ...(out.headers ?? {}) })
   res.end(JSON.stringify(out.json ?? {}))
 })
 function defaults(r) {
@@ -75,10 +75,10 @@ function agentDir(config = {}, { db = DB } = {}) {
 }
 
 /** Corre el agente; `loopMs`: en bucle durante ese tiempo (si no, --once). */
-function runAgent(dir, { loopMs = 0 } = {}) {
+function runAgent(dir, { loopMs = 0, env = {} } = {}) {
   return new Promise((resolve) => {
     const args = ['--disable-warning=ExperimentalWarning', path.join(dir, 'src', 'index.mjs'), ...(loopMs ? [] : ['--once'])]
-    const child = spawn(process.execPath, args, { cwd: dir })
+    const child = spawn(process.execPath, args, { cwd: dir, env: { ...process.env, ...env } })
     let out = ''
     child.stdout.on('data', (d) => (out += d))
     child.stderr.on('data', (d) => (out += d))
@@ -391,11 +391,14 @@ describe('agente contra una tienda simulada', () => {
     await runAgent(dir)
     handler = () => null
     const r = since(i)
-    assert.equal(r.filter((x) => x.url.includes('web-sales')).length, 0)
+    // Consulta los pedidos (para los avisos) pero no escribe ni informa nada.
+    assert.equal(r.filter((x) => x.url.includes('/web-sales/')).length, 0)
+    assert.equal(docsFor('PW-8106-AG').length, 0)
     const sync = r.find((x) => x.url.endsWith('/sync'))
     assert.equal(sync.body.agent.write_enabled, false)
     assert.match(sync.body.agent.write_blocked_reason, /Document sin Note/)
     assert.ok(sync.body.items.length > 0)
+    assert.match(read(dir, 'avisos.json').blocked, /Document sin Note/)
   })
 
   it('el producto ENVIO no se manda a la tienda aunque esté cargado como producto común', async () => {
@@ -408,5 +411,159 @@ describe('agente contra una tienda simulada', () => {
     const i = requests.length
     await runAgent(agentDir())
     assert.equal(since(i).find((r) => r.url.endsWith('/sync')).body.items.some((p) => p.code === 'ENVIO'), false)
+  })
+})
+
+// ---- Lo que pasa en la PC del local -----------------------------------------
+
+/** Un proceso aparte que toma la base como lo haría la caja al grabar. */
+function holdLock(db, ms, mode = 'EXCLUSIVE') {
+  const script = `const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(db)}); d.exec('BEGIN ${mode}'); console.log('tomada'); setTimeout(() => { d.exec('ROLLBACK'); d.close() }, ${ms})`
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', script])
+  return new Promise((resolve) => child.stdout.once('data', () => resolve(child)))
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const countDocs = (db, where = '1 = 1') => {
+  const d = new DatabaseSync(db, { readOnly: true })
+  try {
+    return d.prepare(`SELECT count(*) AS n FROM Document WHERE ${where}`).get().n
+  } finally {
+    d.close()
+  }
+}
+
+describe('condiciones de la PC del local', () => {
+  it('un solo agente por carpeta: el segundo no arranca (ni en bucle ni con --once)', async () => {
+    const dir = agentDir()
+    const first = runAgent(dir, { loopMs: 6000, env: { SINCRONIZADOR_PRUEBA_MS: '1000' } })
+    await sleep(1500)
+    const second = await runAgent(dir, { loopMs: 4000 })
+    const once = await runAgent(dir)
+    await first
+    assert.equal(second.code, 0)
+    assert.match(logOf(dir), /Ya hay un sincronizador corriendo en esta carpeta/)
+    assert.equal(once.code, 1)
+    assert.match(once.out, /Ya hay un sincronizador corriendo/)
+    // Muerto el primero, el candado se libera solo.
+    assert.equal((await runAgent(dir)).code, 0)
+  })
+
+  it('reloj de la PC 2 horas adelantado: no escribe pedidos y lo dice en el panel y en los avisos', async () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000).toUTCString()
+    handler = (r) => ({ ...defaults(r), ...(r.url.includes('/web-sales?') ? { json: { work: [quoteJob(8201)] } } : {}), headers: { date: twoHoursAgo } })
+    const i = requests.length
+    const dir = agentDir()
+    await runAgent(dir)
+    handler = () => null
+    assert.equal(docsFor('PW-8201-AG').length, 0)
+    assert.equal(since(i).filter((r) => r.url.includes('/web-sales/')).length, 0)
+    const sync = since(i).find((r) => r.url.endsWith('/sync'))
+    assert.equal(sync.body.agent.write_enabled, false)
+    assert.match(sync.body.agent.write_blocked_reason, /reloj de esta PC está 120 minutos adelantado/)
+    assert.match(read(dir, 'avisos.json').blocked, /adelantado/)
+  })
+
+  it('reloj 10 minutos corrido: tolerado, escribe igual', async () => {
+    const tenMin = new Date(Date.now() + 10 * 60 * 1000).toUTCString()
+    handler = (r) => ({ ...defaults(r), ...(r.url.includes('/web-sales?') ? { json: { work: [quoteJob(8202)] } } : {}), headers: { date: tenMin } })
+    await runAgent(agentDir())
+    handler = () => null
+    assert.equal(docsFor('PW-8202-AG').length, 1)
+  })
+
+  it('Aronium se actualiza con el agente andando: deja de escribir en la pasada siguiente', async () => {
+    const db = path.join(BASE, 'se-actualiza.db')
+    fs.copyFileSync(DB, db)
+    const dir = agentDir({}, { db })
+    const i = requests.length
+    const run = runAgent(dir, { loopMs: 5000, env: { SINCRONIZADOR_PRUEBA_MS: '1000' } })
+    await sleep(1800)
+    const d = new DatabaseSync(db)
+    d.exec('ALTER TABLE Customer DROP COLUMN PostalCode')
+    d.close()
+    await run
+    const syncs = since(i).filter((r) => r.url.endsWith('/sync'))
+    assert.equal(syncs[0].body.agent.write_enabled, true)
+    assert.equal(syncs.at(-1).body.agent.write_enabled, false)
+    assert.match(syncs.at(-1).body.agent.write_blocked_reason, /Customer sin PostalCode/)
+    assert.match(logOf(dir), /Pedidos web desactivados/)
+  })
+
+  it('config.json cambiado con el agente andando: usa la clave nueva; si quedó mal, sigue con la anterior', async () => {
+    const dir = agentDir()
+    const file = path.join(dir, 'config.json')
+    const i = requests.length
+    const run = runAgent(dir, { loopMs: 6000, env: { SINCRONIZADOR_PRUEBA_MS: '1000' } })
+    await sleep(1500)
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), token: 'arag_nueva' }))
+    await sleep(2000)
+    fs.writeFileSync(file, '{ roto')
+    await run
+    const auths = since(i).map((r) => r.auth)
+    assert.equal(auths[0], 'Bearer arag_prueba')
+    assert.equal(auths.at(-1), 'Bearer arag_nueva')
+    assert.match(logOf(dir), /config\.json cambió: se usa la nueva configuración/)
+    assert.match(logOf(dir), /config\.json cambió pero no se puede usar/)
+  })
+
+  it('la caja grabando más de 5 s durante la lectura: no se muestra como error en el panel', async () => {
+    const db = path.join(BASE, 'ocupada.db')
+    fs.copyFileSync(DB, db)
+    const holder = await holdLock(db, 25000)
+    const i = requests.length
+    const dir = agentDir({}, { db })
+    const { code, out } = await runAgent(dir)
+    holder.kill()
+    assert.equal(code, 0, out)
+    assert.equal(since(i).filter((r) => r.url.endsWith('/sync') && r.body.error).length, 0)
+    assert.match(out, /Aronium ocupado/)
+    assert.doesNotMatch(out, /desactivados/)
+  })
+
+  it('corte de luz en medio de una escritura: Aronium queda como estaba y el agente sigue', async () => {
+    const db = path.join(BASE, 'corte.db')
+    fs.copyFileSync(DB, db)
+    const before = countDocs(db)
+    // Un proceso empieza a escribir un documento y se muere sin terminar.
+    const insert = `INSERT INTO Document (Number, UserId, CustomerId, Date, StockDate, Total, IsClockedOut, DocumentTypeId, WarehouseId, DateCreated, DateUpdated, DueDate, Discount, DiscountType, PaidStatus, DiscountApplyRule, ServiceType) VALUES ('CORTE', 1, 1, '2026-01-01', '2026-01-01', 1, 0, 2, 1, '2026-01-01', '2026-01-01', '2026-01-01', 0, 0, 1, 0, 0)`
+    const script = `const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(${JSON.stringify(db)}); d.exec('BEGIN IMMEDIATE'); d.exec(${JSON.stringify(insert)}); process.exit(1)`
+    await new Promise((r) => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', script]).on('close', r))
+    handler = (r) => (r.url.includes('/web-sales?') ? { json: { work: [quoteJob(8203)] } } : null)
+    const { code } = await runAgent(agentDir({}, { db }))
+    handler = () => null
+    assert.equal(code, 0)
+    assert.equal(countDocs(db, "Number = 'CORTE'"), 0)
+    assert.equal(countDocs(db, "OrderNumber = 'PW-8203-AG'"), 1)
+    assert.equal(countDocs(db), before + 1)
+  })
+
+  it("carpeta y base con espacios, tildes, ñ y apóstrofo (usuario \"José O'Higgins\")", async () => {
+    const weird = path.join(BASE, "Usuarios José O'Higgins Ñandú", 'Datos Aronium')
+    fs.mkdirSync(weird, { recursive: true })
+    const db = path.join(weird, 'pos.db')
+    fs.copyFileSync(DB, db)
+    const dir = path.join(BASE, 'Sincronizador Aronium Peña')
+    fs.cpSync(SRC, path.join(dir, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ storeUrl: url, token: 'arag_prueba', aroniumDb: db, webSales: { paymentTypes: { bank_transfer: 'Efectivo' } } }))
+    handler = (r) => (r.url.includes('/web-sales?') ? { json: { work: [quoteJob(8204)] } } : null)
+    const { code, out } = await runAgent(dir)
+    handler = () => null
+    assert.equal(code, 0, out)
+    assert.ok(fs.readdirSync(path.join(dir, 'backups')).some((f) => /^pos-\d{4}-\d{2}-\d{2}\.db$/.test(f)))
+    assert.equal(countDocs(db, "OrderNumber = 'PW-8204-AG'"), 1)
+  })
+
+  it('sin internet en bucle: el log no repite el mismo error en cada pasada', async () => {
+    const dir = agentDir({ storeUrl: 'http://127.0.0.1:9' })
+    await runAgent(dir, { loopMs: 4000, env: { SINCRONIZADOR_PRUEBA_MS: '100' } })
+    const errors = logOf(dir).trim().split('\n').filter((l) => /Sin conexión/.test(l))
+    // Muchas pasadas, pero cada error distinto una sola vez.
+    assert.ok(errors.length <= 2, `${errors.length} líneas de error:\n${errors.join('\n')}`)
+  })
+
+  it('avisos.json dice cada cuánto pasa el agente (para no dar "sin responder" con la frecuencia en 30 min)', async () => {
+    const dir = agentDir({ intervalMinutes: 30 })
+    await runAgent(dir)
+    assert.equal(read(dir, 'avisos.json').interval_minutes, 30)
   })
 })

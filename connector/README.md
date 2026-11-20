@@ -117,26 +117,53 @@ Los nombres se cambian en `config.json` → `webSales`.
    - `aroniumDb`: la base de Aronium. La de siempre es
      `%LOCALAPPDATA%/Aronium/Data/pos.db`; si no está ahí, Aronium la muestra en
      Configuración → Base de datos → "Abrir ubicación". En el JSON las rutas van
-     con `/` (o `\\` doble): una sola `\` hace inválido el archivo.
+     con `/` (o `\\` doble): una sola `\` hace inválido el archivo. El
+     instalador reemplaza `%LOCALAPPDATA%` por la ruta completa: la tarea corre
+     con la cuenta del sistema, que tiene otra carpeta.
    - `warehouseId`: `null` suma todos los depósitos; un número usa solo ese.
    - `intervalMinutes`: cada cuántos minutos sincroniza (1 a 30). Recomendado: 1.
    - `webSales`: nombres del usuario, las formas de pago y el producto de envío
      en Aronium (ver arriba); `"enabled": false` apaga el registro de ventas web.
-5. En PowerShell **como administrador**, dentro de la carpeta:
+5. **Revisar sin instalar** (no hace falta ser administrador, no toca nada):
+   `powershell -ExecutionPolicy Bypass -File install.ps1 -Prueba`
+   Revisa Node, `config.json`, la base de Aronium (versión, usuario, formas
+   de pago, envío, servicios de delivery), la clave con la tienda y el reloj
+   de la PC. ✖ = arreglarlo antes de instalar; ⚠ = conviene mirarlo.
+6. En PowerShell **como administrador**, dentro de la carpeta:
    `powershell -ExecutionPolicy Bypass -File install.ps1`
-   Prepara Aronium (forma de pago y envío), hace una pasada de prueba y
-   deja una tarea programada que **arranca con
-   Windows** (aunque nadie inicie sesión) y se reinicia sola si se cae.
+   Vuelve a revisar todo (con un ✖ no instala nada), prepara Aronium (forma
+   de pago y envío), hace una pasada de prueba y deja una tarea programada que
+   **arranca con Windows** (aunque nadie inicie sesión) y que, si el agente se
+   cierra, lo vuelve a abrir en 5 minutos. Al final verifica que quedó
+   corriendo.
 
 Para quitarlo: `install.ps1 -Uninstall`.
+
+### Lo que el agente cuida solo en la PC del local
+
+- **Un solo agente** por carpeta: si alguien lo abre a mano con la tarea
+  andando, el segundo no arranca.
+- **El reloj de la PC**: con más de 30 minutos de diferencia con la tienda no
+  registra pedidos (saldrían con otra fecha y caerían en otro cierre de caja).
+  Lo dice en el panel y en los avisos.
+- **Aronium actualizado** con el agente andando: revisa la base en cada pasada
+  y, si cambió, deja de registrar pedidos y lo avisa.
+- **La caja grabando**: si Aronium está ocupado, espera y reintenta en la
+  pasada siguiente (no lo muestra como error).
+- **`config.json` cambiado** (una clave nueva): lo relee solo, sin reiniciar.
+  Si quedó mal escrito, sigue con el anterior y lo anota en el registro.
+- **Sin internet**: lo escrito en Aronium queda guardado y se informa al
+  volver. El registro anota cada error repetido una vez por hora.
 
 ## Avisos en la PC del local
 
 `avisos.ps1` pone un ícono junto al reloj de Windows. Cuando entra un pedido
 web muestra un aviso ("Pedido web PW-1042-K7 — Juan Pérez — Gs. 1.250.000") y,
 con doble clic, la lista de proformas que esperan que la cajera las marque
-"Pagado". Avisa también los pedidos con error y si el sincronizador dejó de
-responder (más de 10 minutos sin novedades).
+"Pagado". Avisa también los pedidos con error, si los pedidos web están **en
+pausa** (y por qué: el reloj de la PC, una versión nueva de Aronium) y si el
+sincronizador dejó de responder (más de 10 minutos sin novedades, o el doble
+de la frecuencia si en el panel se puso más larga).
 
 El sincronizador corre como tarea del sistema, que no puede mostrar nada en
 pantalla: escribe `avisos.json` en cada pasada y `avisos.ps1` (con el usuario
@@ -150,8 +177,10 @@ tarea "Avisos pedidos web - Tienda", que arranca al iniciar sesión.
 - `backups/`: una copia de `pos.db` por día (las últimas 14).
 - `state.json`: lo que el agente recuerda entre reinicios (no tocar).
 - `avisos.json`: lo que muestran los avisos de la PC (lo reescribe cada pasada).
-- `npm run once`: una pasada a mano. `npm test`: pruebas del registro de ventas
-  sobre una **copia** de `pos.db` (nunca la base real).
+- `npm run revisar`: la misma revisión que `install.ps1 -Prueba`.
+- `npm run once`: una pasada a mano. `npm test`: pruebas del agente sobre una
+  **copia** de `pos.db` (nunca la base real); con `ARONIUM_TEST_DB=<copia>`,
+  sobre una copia de la base del local.
 
 Aronium Pro (varias cajas, base SQL Server) no está soportado: este agente es
 para Aronium Lite (`pos.db`).

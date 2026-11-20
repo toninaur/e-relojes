@@ -1,9 +1,11 @@
+import fs from 'node:fs'
 import os from 'node:os'
 import { readImages, readProducts } from './aronium.mjs'
 import { createApi } from './api.mjs'
 import { pendingEntry, writeAlerts } from './alerts.mjs'
 import { backupIfNeeded } from './backup.mjs'
-import { loadConfig } from './config.mjs'
+import { CONFIG_PATH, loadConfig } from './config.mjs'
+import { acquireLock } from './lock.mjs'
 import { errorMessage, log } from './log.mjs'
 import { checkSchema } from './schema.mjs'
 import { loadState, saveState } from './state.mjs'
@@ -28,13 +30,21 @@ import { AroniumDataError, createWriter, isTransient } from './write.mjs'
 //   node src/index.mjs          corre en bucle (lo que usa la tarea programada)
 //   node src/index.mjs --once   una sola pasada completa y termina
 
-const VERSION = '0.8.2'
+const VERSION = '0.9.0'
 const FULL_EVERY_MINUTES = 30
 const IMAGE_BATCH_SIZE = 10
 
-const config = loadConfig()
-const api = createApi(config)
-const writer = createWriter(config)
+// El reloj de esta PC puede estar mal (pila gastada, alguien lo cambió): las
+// ventas saldrían con otra fecha y caerían en otro cierre de caja. Con más de
+// esta diferencia con la tienda, no se escriben pedidos.
+const MAX_CLOCK_SKEW_MINUTES = 30
+
+// Se releen si alguien cambia config.json (una clave nueva, otra forma de
+// pago) sin tener que reiniciar el agente.
+let config = loadConfig()
+let configMtime = mtimeOf(CONFIG_PATH)
+let api = createApi(config)
+let writer = createWriter(config)
 const state = loadState()
 // Códigos que la tienda pidió volver a mandar ("Tomar de Aronium", pedidos
 // web nuevos o cancelados). Se guardan en state.json hasta mandarlos.
@@ -49,47 +59,121 @@ let wasPaused = false
 // lo que se declara después no existe todavía cuando corre la primera pasada.)
 const lastReported = new Map()
 
-// Escribir ventas: solo si la base de Aronium es una versión conocida.
-const schema = checkSchemaSafe()
-const writeEnabled = config.webSales.enabled && api.supportsWebSales && schema.ok
+// Si puede escribir pedidos en Aronium y, si no, por qué. Se revisa en cada
+// pasada: Aronium se puede actualizar con el agente andando (corre semanas
+// sin reiniciarse) y el reloj de la PC puede cambiar.
 const agent = {
   version: VERSION,
   host: os.hostname(),
   interval_minutes: config.intervalMinutes,
-  write_enabled: writeEnabled,
-  write_blocked_reason: !config.webSales.enabled
-    ? null
-    : !api.supportsWebSales
-      ? 'El conector usa la clave de administrador vieja: generá la clave del conector en el panel → Aronium para registrar ventas web.'
-      : schema.ok
-        ? null
-        : schema.reason,
+  write_enabled: false,
+  write_blocked_reason: null,
 }
-if (agent.write_blocked_reason) log(`Pedidos web desactivados: ${agent.write_blocked_reason}`)
+// busy: la caja estaba grabando y no se pudo revisar todavía (no es un problema).
+const BUSY = 'Aronium ocupado (la caja está grabando): los pedidos web esperan a la próxima pasada.'
+let schema = { ok: false, reason: BUSY, busy: true }
 
-if (process.argv.includes('--once')) {
+const once = process.argv.includes('--once')
+// Un solo agente por carpeta (lock.mjs).
+if (!(await acquireLock())) {
+  const message = 'Ya hay un sincronizador corriendo en esta carpeta (la tarea programada o alguien lo abrió a mano): no se abre otro.'
+  if (once) console.error(message)
+  else log(message)
+  process.exit(once ? 1 : 0)
+}
+
+if (once) {
   process.exitCode = (await pass({ forceFull: true })) ? 0 : 1
 } else {
-  log(`Agente ${VERSION} iniciado: ${config.storeUrl}, cada ${config.intervalMinutes} min${writeEnabled ? ', con pedidos web' : ''}`)
+  // Nada inesperado tiene que tumbar el agente. Si igual se cae, la tarea
+  // programada lo vuelve a abrir en 5 minutos (install.ps1).
+  process.on('unhandledRejection', (error) => log(`ERROR inesperado: ${errorMessage(error)}`))
+  process.on('uncaughtException', (error) => {
+    log(`ERROR inesperado, el agente se reinicia: ${errorMessage(error)}`)
+    process.exit(1)
+  })
+  refreshWriteState()
+  log(`Agente ${VERSION} iniciado: ${config.storeUrl}, cada ${config.intervalMinutes} min${agent.write_enabled ? ', con pedidos web' : ''}`)
   for (;;) {
-    await pass()
-    await new Promise((r) => setTimeout(r, intervalMinutes * 60 * 1000))
+    try {
+      await pass()
+    } catch (error) {
+      log(`ERROR inesperado en la pasada: ${errorMessage(error)}`)
+    }
+    // SINCRONIZADOR_PRUEBA_MS: solo para las pruebas (test/agent.test.mjs),
+    // pasadas seguidas sin esperar minutos.
+    await new Promise((r) => setTimeout(r, Number(process.env.SINCRONIZADOR_PRUEBA_MS) || intervalMinutes * 60 * 1000))
   }
 }
 
-function checkSchemaSafe() {
+function mtimeOf(file) {
   try {
-    return checkSchema(config.aroniumDb)
-  } catch (error) {
-    return { ok: false, reason: `No se pudo revisar la base de Aronium (${config.aroniumDb}): ${errorMessage(error)}` }
+    return fs.statSync(file).mtimeMs
+  } catch {
+    return 0
   }
+}
+
+/** config.json cambió: se relee sin reiniciar. Si quedó mal, sigue con el anterior. */
+function reloadConfigIfChanged() {
+  const mtime = mtimeOf(CONFIG_PATH)
+  if (mtime === configMtime) return
+  configMtime = mtime
+  try {
+    const next = loadConfig({ exitOnError: false })
+    const intervalChanged = next.intervalMinutes !== config.intervalMinutes
+    config = next
+    api = createApi(config)
+    writer = createWriter(config)
+    if (intervalChanged) intervalMinutes = config.intervalMinutes
+    log(`config.json cambió: se usa la nueva configuración (${config.storeUrl}, cada ${intervalMinutes} min).`)
+  } catch (error) {
+    log(`ERROR: config.json cambió pero no se puede usar (${errorMessage(error)}). Se sigue con la configuración anterior.`)
+  }
+}
+
+/** La base de Aronium: si se puede revisar ahora (la caja grabando: queda lo anterior). */
+function refreshSchema() {
+  try {
+    schema = checkSchema(config.aroniumDb)
+  } catch (error) {
+    // Ocupada: queda lo que se sabía (o "ocupado" si todavía no se sabía nada).
+    if (isTransient(error)) {
+      if (schema.busy) log(BUSY)
+      return
+    }
+    schema = { ok: false, reason: `No se pudo revisar la base de Aronium (${config.aroniumDb}): ${errorMessage(error)}` }
+  }
+}
+
+/** ¿Puede escribir pedidos? Lo anota en `agent` (va a la tienda) y en el log si cambió. */
+function refreshWriteState() {
+  refreshSchema()
+  const skew = api.clockSkewMs()
+  const skewMinutes = skew === null ? 0 : Math.round(skew / 60000)
+  let reason = null
+  if (!config.webSales.enabled) reason = null
+  else if (!api.supportsWebSales) reason = 'El conector usa la clave de administrador vieja: generá la clave del conector en el panel → Aronium para registrar ventas web.'
+  else if (!schema.ok) reason = schema.reason
+  else if (Math.abs(skewMinutes) > MAX_CLOCK_SKEW_MINUTES) {
+    reason = `El reloj de esta PC está ${Math.abs(skewMinutes)} minutos ${skewMinutes > 0 ? 'adelantado' : 'atrasado'}: las ventas web saldrían con otra fecha en Aronium. Corregí la fecha y la hora de Windows; los pedidos se registran solos después.`
+  }
+  const enabled = config.webSales.enabled && !reason
+  if (reason !== agent.write_blocked_reason) {
+    if (reason && !schema.busy) log(`Pedidos web desactivados: ${reason}`)
+    else if (agent.write_blocked_reason && agent.write_blocked_reason !== BUSY) log('Pedidos web activados de nuevo.')
+  }
+  agent.write_enabled = enabled
+  agent.write_blocked_reason = config.webSales.enabled ? reason : null
 }
 
 async function pass({ forceFull = false } = {}) {
   let ok = true
+  reloadConfigIfChanged()
+  refreshWriteState()
   try {
     await flushResults()
-    if (writeEnabled) await webSales()
+    if (config.webSales.enabled && api.supportsWebSales) await webSales()
   } catch (error) {
     // Sin conexión con la tienda, etc.: el catálogo se intenta igual.
     log(`ERROR (ventas web): ${errorMessage(error)}`)
@@ -121,9 +205,18 @@ async function flushResults() {
 
 async function webSales() {
   const { work } = await api.webSalesWork()
+  // Con la hora de la tienda recién llegada: ¿el reloj de la PC está bien?
+  refreshWriteState()
   // Para el programa de avisos de la PC (avisos.json): proformas que esperan
-  // que la cajera las marque "Pagado", y pedidos con error.
-  const alerts = { pending: [], errors: [] }
+  // que la cajera las marque "Pagado", pedidos con error y, si no se puede
+  // escribir en Aronium, por qué.
+  const alerts = { pending: [], errors: [], blocked: null, interval_minutes: intervalMinutes }
+  if (!agent.write_enabled) {
+    alerts.blocked = agent.write_blocked_reason
+    for (const job of work) if (job.action === 'watch') alerts.pending.push(pendingEntry(job))
+    writeAlerts(alerts)
+    return
+  }
   try {
     await doWebSales(work, alerts)
   } finally {
@@ -223,7 +316,18 @@ async function catalog(forceFull) {
       // Aronium lo hayan cargado como producto común y no como servicio).
       .filter((p) => p.code !== config.webSales.shippingCode)
   } catch (error) {
-    const message = `No se pudo leer Aronium (${config.aroniumDb}): ${errorMessage(error)}`
+    if (isTransient(error)) {
+      // La caja estaba grabando más de 5 segundos: no es un problema para
+      // mostrar en el panel; se lee en la pasada siguiente.
+      log('Aronium ocupado (la caja está grabando): el catálogo se lee en la próxima pasada.')
+      return true
+    }
+    // La tarea corre como SYSTEM: %LOCALAPPDATA% es la carpeta del sistema, no
+    // la del usuario de Aronium (install.ps1 pone la ruta completa).
+    const hint = /systemprofile/i.test(config.aroniumDb)
+      ? ' La tarea corre con la cuenta del sistema: en config.json poné la ruta completa de pos.db (sin %LOCALAPPDATA%), o volvé a correr install.ps1, que la completa.'
+      : ''
+    const message = `No se pudo leer Aronium (${config.aroniumDb}): ${errorMessage(error)}.${hint}`
     log(`ERROR: ${message}`)
     // Que el panel lo muestre; si tampoco hay conexión, queda solo en el log.
     await api.sync({ agent, error: message }).catch(() => {})

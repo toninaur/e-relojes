@@ -1,6 +1,6 @@
 {
   "name": "@erelojes/connector",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "private": true,
   "description": "Sincronizador Aronium Lite ↔ tienda online (corre en la computadora del local)",
   "type": "module",
@@ -11,6 +11,7 @@
     "start": "node --disable-warning=ExperimentalWarning src/index.mjs",
     "once": "node --disable-warning=ExperimentalWarning src/index.mjs --once",
     "test": "node --disable-warning=ExperimentalWarning --test test/",
-    "setup": "node --disable-warning=ExperimentalWarning src/setup.mjs"
+    "setup": "node --disable-warning=ExperimentalWarning src/setup.mjs",
+    "revisar": "node --disable-warning=ExperimentalWarning src/check.mjs"
   }
 }

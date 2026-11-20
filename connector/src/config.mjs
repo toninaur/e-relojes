@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 // config.json del agente (ver config.example.json y README).
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const CONFIG_PATH = path.join(ROOT, 'config.json')
+export const CONFIG_PATH = path.join(ROOT, 'config.json')
 
 export const MIN_INTERVAL = 1
 export const MAX_INTERVAL = 30
@@ -17,7 +17,16 @@ function expand(p) {
   return String(p).replace(/%([A-Z_]+)%/gi, (_, name) => process.env[name] ?? `%${name}%`)
 }
 
-export function loadConfig() {
+/**
+ * @param {{ exitOnError?: boolean }} [options] false: un error tira una excepción
+ *   en vez de cerrar el programa (al releer config.json con el agente andando).
+ */
+export function loadConfig({ exitOnError = true } = {}) {
+  const fail = (message) => {
+    if (!exitOnError) throw new Error(message)
+    console.error(message)
+    process.exit(1)
+  }
   if (!fs.existsSync(CONFIG_PATH)) fail(`Falta ${CONFIG_PATH}. Copiá config.example.json a config.json y completalo.`)
   let raw
   try {
@@ -72,7 +81,3 @@ export function loadConfig() {
   return cfg
 }
 
-function fail(message) {
-  console.error(message)
-  process.exit(1)
-}

@@ -110,6 +110,7 @@ function Show-List {
     }
   }
   if ($list.Items.Count -eq 0) { $label.Text = 'No hay pedidos web esperando pago.' }
+  if ($data -and $data.blocked) { $label.Text = "PEDIDOS WEB EN PAUSA: $($data.blocked)" ; $label.ForeColor = [System.Drawing.Color]::DarkRed }
 
   $form.Controls.Add($list)
   $form.Controls.Add($label)
@@ -143,21 +144,38 @@ function Update-Alerts {
 
   # ¿El sincronizador sigue andando?
   $stale = $false
-  try { $stale = ((Get-Date).ToUniversalTime() - ([datetime]$data.updated_at).ToUniversalTime()).TotalMinutes -gt $StaleMinutes } catch {}
+  # Con la frecuencia del panel en 30 minutos, 10 minutos sin novedades es normal.
+  $limit = $StaleMinutes
+  if ($data.interval_minutes) { $limit = [math]::Max($StaleMinutes, 2 * [double]$data.interval_minutes + 2) }
+  try { $stale = ((Get-Date).ToUniversalTime() - ([datetime]$data.updated_at).ToUniversalTime()).TotalMinutes -gt $limit } catch {}
   if ($stale) {
     $Icon.Icon = [System.Drawing.SystemIcons]::Warning
     $Icon.Text = 'Sincronizador sin responder: revisá la PC o internet'
     if (-not $script:StaleWarned) {
-      $Icon.ShowBalloonTip(10000, 'Sincronizador sin responder', "Hace más de $StaleMinutes minutos que no revisa los pedidos web. Revisá que haya internet.", 'Warning')
+      $Icon.ShowBalloonTip(10000, 'Sincronizador sin responder', "Hace más de $limit minutos que no revisa los pedidos web. Revisá que haya internet.", 'Warning')
       $script:StaleWarned = $true
     }
     return
   }
   $script:StaleWarned = $false
 
-  $Icon.Icon = if ($errors.Count) { [System.Drawing.SystemIcons]::Warning } else { [System.Drawing.SystemIcons]::Information }
+  # El sincronizador anda pero no puede registrar pedidos (reloj de la PC mal,
+  # Aronium actualizado): se dice por qué, una vez.
+  if ($data.blocked) {
+    $Icon.Icon = [System.Drawing.SystemIcons]::Warning
+    $Icon.Text = 'Pedidos web en pausa: abrí los avisos para ver por qué'
+    if ($script:BlockedWarned -ne $data.blocked) {
+      $Icon.ShowBalloonTip(15000, 'Pedidos web en pausa', [string]$data.blocked, 'Warning')
+      $script:BlockedWarned = $data.blocked
+    }
+  } else {
+    $script:BlockedWarned = $null
+  }
+
+  $Icon.Icon = if ($errors.Count -or $data.blocked) { [System.Drawing.SystemIcons]::Warning } else { [System.Drawing.SystemIcons]::Information }
   $text = if ($pending.Count -eq 1) { 'Pedidos web: 1 esperando pago' } else { "Pedidos web: $($pending.Count) esperando pago" }
   if ($errors.Count) { $text += ", $($errors.Count) con error" }
+  if ($data.blocked) { $text = "EN PAUSA. $text" }
   $Icon.Text = $text.Substring(0, [math]::Min(63, $text.Length))
 
   # Avisos nuevos.
