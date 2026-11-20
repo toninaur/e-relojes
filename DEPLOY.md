@@ -48,6 +48,17 @@ poco tráfico anda en USD 5–15/mes.
 
    `SEED_DEMO=1` carga el catálogo de demo al arrancar (si ya está, no hace
    nada). Para la tienda real con el catálogo del cliente, se borra.
+
+   **ContiMarket** (opcional; sin estas tres, el conector no manda nada):
+
+   ```
+   CONTIMARKET_URL=https://www.contimarket.com
+   CONTIMARKET_USER=<email del panel de ContiMarket del local>
+   CONTIMARKET_PASSWORD=<contraseña del panel de ContiMarket>
+   ```
+
+   Después se enciende en el panel → ContiMarket. Ver
+   [docs/conector-contimarket.md](docs/conector-contimarket.md).
 4. **Volumen para las fotos:** clic derecho en el servicio → *Attach Volume* →
    mount path `/app/backend/.medusa/server/static`. Sin volumen, las fotos se
    pierden en cada deploy.

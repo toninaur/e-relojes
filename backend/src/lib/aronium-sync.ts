@@ -12,6 +12,7 @@ import { ARONIUM_MODULE } from '../modules/aronium'
 import { classify } from './aronium-classify'
 import { canWrite, parseAroniumContent, toMetadataValues, type SyncedField } from './aronium-content'
 import { requestCodesRefresh, webSaleAlerts, webSaleStockAdjustments } from './aronium-web-sales'
+import { scheduleContimarketPush } from './contimarket-sync'
 import type AroniumModuleService from '../modules/aronium/service'
 
 // Aronium → tienda (ver docs/sincronizador-aronium.md, punto 4.1).
@@ -261,6 +262,11 @@ export async function syncAroniumSnapshot(container: MedusaContainer, input: z.i
       ...(input.full && current?.full_requested ? { clearFullRequest: true } : {}),
     })
     if (outcome.changes.length) {
+      // ContiMarket se entera después, aparte: esta pasada no lo espera ni
+      // depende de que ande (lib/contimarket-sync.ts).
+      try {
+        scheduleContimarketPush(container, 'sincronización de Aronium')
+      } catch {}
       await recordRun(aronium, outcome.changes, {
         items_received: input.items.length,
         duration_ms: Date.now() - started,
