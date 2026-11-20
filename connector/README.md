@@ -20,7 +20,7 @@ y decisiones: [docs/sincronizador-aronium.md](../docs/sincronizador-aronium.md).
 | Producto borrado | **Baja**: stock 0 (no se vende online) |
 | Código que no existe en la tienda | Producto nuevo **en borrador** (oculto) con nombre, descripción, filtros, categoría, marca y tipo deducidos; la foto llega en un segundo paso. **Se publica solo** cuando tiene foto, categoría y stock (una vez: si alguien lo vuelve a ocultar, queda oculto). De a 250 por pasada: la primera carga del catálogo entero (unos 2.250 productos) tarda unos minutos |
 | Producto sin código ni código de barras | No llega a la tienda |
-| Producto publicado que se queda sin stock | Se **oculta**, y vuelve solo cuando tiene stock (lo pidió el local). Las mallas no se publican solas |
+| Producto publicado que se queda sin stock (o con la última unidad reservada por un pedido web) | Se **oculta**, y vuelve solo cuando tiene stock (lo pidió el local). Al entrar o cancelarse un pedido web, la tienda le pide al agente esos códigos y el cambio se ve en uno o dos minutos. Las mallas no se publican solas |
 | Foto, descripción, código de barras | Se copian y se mantienen al día, salvo que se editen en el panel |
 
 **Descripción con filtros (opcional).** En la descripción de Aronium se pueden
@@ -78,7 +78,7 @@ documento entero o nada. Si un producto del pedido no existe en Aronium, no
 escribe nada y el pedido queda "Con error" en el panel, con botón
 **Reintentar**. Avisa en el panel si la cajera cambió la proforma antes de
 cobrarla (la venta sale con lo de la proforma), si ya había cargado la venta a
-mano (no crea otra) o si la proforma se borró. Las proformas hechas a mano, sin
+mano (no crea otra) o si la proforma se borró (ahí el panel ofrece **La cargué a mano**). Las proformas hechas a mano, sin
 código `PW-`, no se tocan.
 
 **Ante la duda, no escribe:** si una actualización de Aronium cambió su base de

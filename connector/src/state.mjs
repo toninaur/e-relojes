@@ -10,6 +10,9 @@ import { ROOT } from './config.mjs'
 //   no llegó a la tienda (se corta internet justo después de escribir). Se
 //   mandan antes que nada en la pasada siguiente.
 // - lastBackupDay: día de la última copia de respaldo.
+// - forceCodes: códigos que la tienda pidió volver a mandar (un pedido web
+//   nuevo o cancelado, "Tomar de Aronium"). La tienda los entrega una sola
+//   vez: si el agente se reinicia antes de mandarlos, no se pierden.
 
 const STATE_PATH = path.join(ROOT, 'state.json')
 
@@ -21,9 +24,10 @@ export function loadState() {
       lastFullAt: Number(raw.lastFullAt) || 0,
       pendingResults: Array.isArray(raw.pendingResults) ? raw.pendingResults : [],
       lastBackupDay: raw.lastBackupDay ?? null,
+      forceCodes: Array.isArray(raw.forceCodes) ? raw.forceCodes.map(String) : [],
     }
   } catch {
-    return { lastSent: new Map(), lastFullAt: 0, pendingResults: [], lastBackupDay: null }
+    return { lastSent: new Map(), lastFullAt: 0, pendingResults: [], lastBackupDay: null, forceCodes: [] }
   }
 }
 
@@ -33,6 +37,7 @@ export function saveState(state) {
     lastFullAt: state.lastFullAt,
     pendingResults: state.pendingResults,
     lastBackupDay: state.lastBackupDay,
+    forceCodes: state.forceCodes,
   }
   // Escritura atómica: archivo temporal y renombrar (un corte de luz no deja
   // el estado a medias).

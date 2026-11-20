@@ -28,7 +28,7 @@ import { AroniumDataError, createWriter, isTransient } from './write.mjs'
 //   node src/index.mjs          corre en bucle (lo que usa la tarea programada)
 //   node src/index.mjs --once   una sola pasada completa y termina
 
-const VERSION = '0.8.0'
+const VERSION = '0.8.1'
 const FULL_EVERY_MINUTES = 30
 const IMAGE_BATCH_SIZE = 10
 
@@ -36,8 +36,9 @@ const config = loadConfig()
 const api = createApi(config)
 const writer = createWriter(config)
 const state = loadState()
-// Códigos que la tienda pidió volver a mandar ("Tomar de Aronium").
-let forceCodes = new Set()
+// Códigos que la tienda pidió volver a mandar ("Tomar de Aronium", pedidos
+// web nuevos o cancelados). Se guardan en state.json hasta mandarlos.
+let forceCodes = new Set(state.forceCodes)
 // Lo que se maneja desde el panel → Aronium (llega en cada respuesta de la
 // tienda): frecuencia, "Sincronizar todo ahora" y pausa.
 let intervalMinutes = config.intervalMinutes
@@ -156,7 +157,7 @@ async function doWebSales(work, alerts) {
       } else if (job.action === 'cancel') {
         backup()
         if (job.aronium_number) {
-          result = { action: 'cancel', ...writer.cancelSale(job.aronium_number, job.payload) }
+          result = { action: 'cancel', ...writer.cancelSale(job.aronium_number, job.payload, code) }
           log(`${label}: devolución ${result.refund_number} de ${job.aronium_number}`)
         } else {
           result = { action: 'cancel', ...writer.voidQuote(job.aronium_quote_number, job.payload, code) }
@@ -257,6 +258,7 @@ async function catalog(forceFull) {
       for (const p of items) state.lastSent.set(p.code, current.get(p.code))
     }
     forceCodes = new Set(result.refresh_codes ?? [])
+    state.forceCodes = [...forceCodes]
 
     const summary = [
       result.created && `${result.created} altas`,

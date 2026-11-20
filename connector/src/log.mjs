@@ -20,5 +20,9 @@ export function log(message) {
 
 export function errorMessage(error) {
   if (!(error instanceof Error)) return String(error)
-  return error.cause instanceof Error ? `${error.message} (${error.cause.message})` : error.message
+  if (!(error.cause instanceof Error)) return error.message
+  // "Conexión rechazada" llega como un AggregateError sin texto (uno por cada
+  // dirección, IPv6 e IPv4): se usa el código (ECONNREFUSED).
+  const cause = error.cause.message || error.cause.errors?.find((e) => e?.message)?.message || error.cause.code
+  return cause ? `${error.message} (${cause})` : error.message
 }

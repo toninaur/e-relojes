@@ -218,6 +218,39 @@ function message(error: unknown) {
 // ---- Eventos de la tienda ---------------------------------------------------
 
 /**
+ * Pide al agente que vuelva a mandar estos códigos en la próxima pasada (en
+ * un minuto). Lo usa "Tomar de Aronium" y, al entrar o cancelarse un pedido
+ * web, para que la tienda revise enseguida si el producto se oculta (la última
+ * unidad quedó reservada) o vuelve (se liberó la reserva): Aronium no cambia
+ * con una proforma, así que sin esto el agente no lo mandaría hasta la pasada
+ * completa (cada 30 minutos).
+ */
+export async function requestCodesRefresh(container: MedusaContainer, codes: string[]) {
+  const wanted = codes.filter(Boolean)
+  if (!wanted.length) return
+  const aronium = service(container)
+  const [agent] = await aronium.listAroniumAgents({}, { take: 1 })
+  const prev = (agent?.refresh_codes as { codes?: unknown } | null | undefined)?.codes
+  const next = [...new Set([...(Array.isArray(prev) ? prev.map(String) : []), ...wanted])]
+  if (agent) await aronium.updateAroniumAgents({ id: agent.id, refresh_codes: { codes: next } })
+  else await aronium.createAroniumAgents({ refresh_codes: { codes: next } })
+}
+
+/** Códigos de los productos de un pedido web. */
+function payloadCodes(payload: unknown): string[] {
+  return ((payload as WebSalePayload | null)?.lines ?? []).map((l) => l.sku ?? '').filter(Boolean)
+}
+
+async function refreshSafely(container: MedusaContainer, codes: string[]) {
+  try {
+    await requestCodesRefresh(container, codes)
+  } catch (error) {
+    // Sin esto, la pasada completa lo corrige igual.
+    logger(container).warn(`[aronium] No se pudo pedir el reenvío de ${codes.join(', ')}: ${message(error)}`)
+  }
+}
+
+/**
  * Datos que quedan en la tienda además de la cola: el código de seguimiento
  * en el pedido (se ve en el panel) y el RUC y la razón social en el cliente
  * con cuenta (para la próxima compra). Si falla, el pedido sigue igual.
@@ -261,6 +294,7 @@ export async function enqueueOrder(container: MedusaContainer, orderId: string) 
     payload: payload as unknown as Record<string, unknown>,
   })
   await saveOrderAndCustomerData(container, order, payload.tracking_code)
+  await refreshSafely(container, payloadCodes(payload))
   return row
 }
 
@@ -285,6 +319,7 @@ export async function cancelOrder(container: MedusaContainer, orderId: string) {
     ...(inAronium ? {} : { cancelled_at: new Date() }),
     last_error: null,
   })
+  await refreshSafely(container, payloadCodes(sale.payload))
 }
 
 /** El pago capturado → pedido. */
@@ -451,11 +486,15 @@ export async function applyAgentResult(container: MedusaContainer, id: string, i
 
 /**
  * Panel: "La cargué a mano". El local lo registró en Aronium por su cuenta (por
- * ejemplo, porque un producto no tenía código): el agente no lo toca más.
+ * ejemplo, porque un producto no tenía código o se borró la proforma): el
+ * agente no lo toca más.
  */
 export async function skipWebSale(container: MedusaContainer, id: string) {
   const sale = await findById(container, id)
-  if (sale.status !== 'failed' && sale.status !== 'pending') {
+  // Una proforma con error (por ejemplo, la borraron en Aronium) también: el
+  // aviso le pide a la cajera cargar la venta a mano.
+  const quotedWithError = sale.status === 'quoted' && Boolean(sale.last_error)
+  if (sale.status !== 'failed' && sale.status !== 'pending' && !quotedWithError) {
     throw new MedusaError(MedusaError.Types.NOT_ALLOWED, 'Solo un pedido pendiente o con error se puede marcar como cargado a mano.')
   }
   return service(container).updateAroniumWebSales({ id, status: 'skipped', last_error: null })

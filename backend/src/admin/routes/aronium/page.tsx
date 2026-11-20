@@ -550,7 +550,7 @@ const WebSalesCard = () => {
                         {w.warning}
                       </Text>
                     )}
-                    {(w.status === 'failed' || w.status === 'pending') && (
+                    {(w.status === 'failed' || w.status === 'pending' || (w.status === 'quoted' && w.last_error)) && (
                       <div className="flex flex-wrap gap-2">
                         {w.status === 'failed' && (
                           <Button size="small" variant="secondary" isLoading={busy === `${w.id}:retry`} onClick={() => act(w.id, 'retry')}>

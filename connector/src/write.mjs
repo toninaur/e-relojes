@@ -339,9 +339,18 @@ export function createWriter(config) {
     ]
   }
 
+  /**
+   * Documento del pedido web: por número y, si no, por el código PW-. El
+   * número solo vale si el documento es de este pedido (mismo código en el
+   * número de orden): al restaurar una copia de respaldo de Aronium los números
+   * se vuelven a usar, y el de una proforma vieja puede ser el de la de otro
+   * pedido.
+   */
   function findDoc(db, typeId, { number, code }) {
     if (number) {
-      const row = db.prepare('SELECT * FROM Document WHERE Number = ? AND DocumentTypeId = ?').get(number, typeId)
+      const row = code
+        ? db.prepare('SELECT * FROM Document WHERE Number = ? AND DocumentTypeId = ? AND OrderNumber = ?').get(number, typeId, code)
+        : db.prepare('SELECT * FROM Document WHERE Number = ? AND DocumentTypeId = ?').get(number, typeId)
       if (row) return row
     }
     if (code) return db.prepare('SELECT * FROM Document WHERE OrderNumber = ? AND DocumentTypeId = ? ORDER BY Id LIMIT 1').get(code, typeId) ?? null
@@ -496,8 +505,12 @@ export function createWriter(config) {
         }
       }
 
-      const expected = payload.lines.reduce((s, l) => s + l.total, 0) + (payload.shipping?.total ?? 0)
-      if (Math.round(Number(q.Total)) !== Math.round(expected)) {
+      const linesTotal = payload.lines.reduce((s, l) => s + l.total, 0)
+      const expected = linesTotal + (payload.shipping?.total ?? 0)
+      // Sin servicio de envío en Aronium, la proforma se escribió sin el envío
+      // (writeQuote ya lo avisó): eso no es un cambio de la cajera.
+      const unchanged = [expected, linesTotal].some((t) => Math.round(Number(q.Total)) === Math.round(t))
+      if (!unchanged) {
         warnings.push(`La proforma se cambió en Aronium: total ${Number(q.Total)} en vez de ${expected} del pedido web. La venta se hizo con lo de la proforma.`)
       }
 
@@ -557,13 +570,16 @@ export function createWriter(config) {
   }
 
   /** Pedido cancelado en la tienda después de ser venta: devolución. */
-  function cancelSale(number, payload) {
+  function cancelSale(number, payload, code = payload?.tracking_code) {
     return transaction((db) => {
       const sale = docType(db, SALE)
       const refund = docType(db, REFUND)
-      const original = db.prepare('SELECT * FROM Document WHERE Number = ? AND DocumentTypeId = ?').get(number, sale.Id)
+      // La venta de este pedido, nunca la de otro con el mismo número (findDoc).
+      const original = findDoc(db, sale.Id, { number, code })
       if (!original) throw new AroniumDataError(`No se encontró la venta ${number} en Aronium para devolverla.`)
-      const done = db.prepare('SELECT Number FROM Document WHERE DocumentTypeId = ? AND ReferenceDocumentNumber = ?').get(refund.Id, number)
+      const done = db
+        .prepare('SELECT Number FROM Document WHERE DocumentTypeId = ? AND ReferenceDocumentNumber = ? AND coalesce(OrderNumber, \'\') = coalesce(?, \'\')')
+        .get(refund.Id, original.Number, original.OrderNumber)
       if (done) return { ok: true, refund_number: done.Number }
 
       const items = db.prepare('SELECT * FROM DocumentItem WHERE DocumentId = ?').all(original.Id)
@@ -577,8 +593,8 @@ export function createWriter(config) {
         total: original.Total,
         typeId: refund.Id,
         warehouseId: original.WarehouseId,
-        reference: number,
-        internalNote: `Pedido web #${payload.display_id} cancelado en la tienda. Devolución de la venta ${number}.`,
+        reference: original.Number,
+        internalNote: `Pedido web #${payload.display_id} cancelado en la tienda. Devolución de la venta ${original.Number}.`,
         note: `Devolución pedido web #${payload.display_id}`,
         discount: original.Discount,
         discountType: original.DiscountType,

@@ -229,6 +229,18 @@ describe('pedido web → proforma → venta (sobre una copia de pos.db)', () => 
     assert.equal(pay.Amount, 5000)
   })
 
+  it('sin producto de envío en Aronium: la proforma sale sin el envío y la venta no avisa un cambio que no hubo', () => {
+    const noShipping = createWriter({ ...config, webSales: { ...config.webSales, shippingCode: 'NO-EXISTE' } })
+    const p = payload(9020, [{ sku: '1', quantity: 1, unit_price: 5000, total: 5000 }], { shipping: { name: 'Envío sin servicio', total: 15000 } })
+    const r = noShipping.writeQuote(p, code(9020))
+    assert.match(r.warning, /No existe el producto "NO-EXISTE"/)
+    assert.equal(byNumber(r.quote_number).Total, 5000)
+    markPaid(r.quote_number)
+    const s = noShipping.invoiceQuote(r.quote_number, p, code(9020))
+    assert.doesNotMatch(s.warning ?? '', /se cambió/)
+    assert.equal(byNumber(s.aronium_number).Total, 5000)
+  })
+
   it('producto sin código (por su código de barras) y delivery con el servicio de esa ciudad', () => {
     db.exec("INSERT INTO Product (Name, Code, Price, IsTaxInclusivePrice, IsPriceChangeAllowed, IsService, IsUsingDefaultQuantity, IsEnabled, Cost, Markup, Color) VALUES ('Perfume sin código (prueba)', NULL, 300000, 1, 0, 0, 1, 1, 0, 0, 'Transparent')")
     const perfume = one('SELECT max(Id) AS id FROM Product').id
@@ -361,6 +373,31 @@ describe('pedido web → proforma → venta (sobre una copia de pos.db)', () => 
     const again = writer.cancelSale(saleNumber, payload(9001, []))
     assert.equal(again.refund_number, r.refund_number)
     assert.equal(stockOf('3'), before + 2)
+  })
+
+  it('números repetidos (copia de respaldo restaurada): nunca toma la proforma ni la venta de otro pedido', () => {
+    // El pedido 9031 tenía la proforma N; se restauró una copia de Aronium y
+    // ahora N es la proforma de otro pedido (9030).
+    const p30 = payload(9030, [{ sku: '1', quantity: 1, unit_price: 5000, total: 5000 }])
+    const other = writer.writeQuote(p30, code(9030))
+    markPaid(other.quote_number)
+    assert.deepEqual(writer.quoteStatus(other.quote_number, code(9031)), { exists: false })
+    const docsBefore = docs()
+    assert.throws(
+      () => writer.invoiceQuote(other.quote_number, payload(9031, [{ sku: '4', quantity: 1, unit_price: 5000, total: 5000 }]), code(9031)),
+      (e) => e instanceof AroniumDataError && /ya no existe/.test(e.message)
+    )
+    assert.equal(docs(), docsBefore)
+    // Anular el 9031 no anota la proforma del 9030.
+    writer.voidQuote(other.quote_number, payload(9031, []), code(9031))
+    assert.doesNotMatch(byNumber(other.quote_number).InternalNote, /ANULADO/)
+    // La devolución del 9031 no devuelve la venta del 9030.
+    const sale30 = writer.invoiceQuote(other.quote_number, p30, code(9030))
+    assert.throws(
+      () => writer.cancelSale(sale30.aronium_number, payload(9031, [])),
+      (e) => e instanceof AroniumDataError && /No se encontró la venta/.test(e.message)
+    )
+    assert.equal(one('SELECT count(*) AS n FROM Document WHERE ReferenceDocumentNumber = ?', sale30.aronium_number).n, 0)
   })
 
   it('si la caja está grabando, es un error pasajero (se reintenta)', () => {

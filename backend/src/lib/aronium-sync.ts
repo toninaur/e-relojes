@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { ARONIUM_MODULE } from '../modules/aronium'
 import { classify } from './aronium-classify'
 import { canWrite, parseAroniumContent, toMetadataValues, type SyncedField } from './aronium-content'
-import { webSaleAlerts, webSaleStockAdjustments } from './aronium-web-sales'
+import { requestCodesRefresh, webSaleAlerts, webSaleStockAdjustments } from './aronium-web-sales'
 import type AroniumModuleService from '../modules/aronium/service'
 
 // Aronium → tienda (ver docs/sincronizador-aronium.md, punto 4.1).
@@ -126,7 +126,7 @@ type VariantRow = {
   price_set?: { prices?: { amount: number; currency_code: string; price_list_id?: string | null }[] } | null
   inventory_items?: {
     inventory_item_id: string
-    inventory?: { location_levels?: { id: string; location_id: string; stocked_quantity: number }[] } | null
+    inventory?: { location_levels?: { id: string; location_id: string; stocked_quantity: number; reserved_quantity?: number | null }[] } | null
   }[] | null
 }
 
@@ -179,10 +179,16 @@ async function withCategory(container: MedusaContainer, ids: string[]): Promise<
   return new Set(data.filter((p) => (p.categories ?? []).length > 0).map((p) => p.id))
 }
 
-/** Stock de la variante en todos los locales. */
+/**
+ * Stock disponible de la variante en todos los locales: lo que hay menos lo
+ * reservado por pedidos web. Una última unidad reservada por un pedido sin
+ * pagar no se puede comprar: el producto se oculta (el local no quiere
+ * mostrar "Sin stock") y vuelve si el pedido se cancela.
+ */
 function variantStock(variant: VariantRow): number {
   let total = 0
-  for (const ii of variant.inventory_items ?? []) for (const l of ii.inventory?.location_levels ?? []) total += Number(l.stocked_quantity) || 0
+  for (const ii of variant.inventory_items ?? [])
+    for (const l of ii.inventory?.location_levels ?? []) total += (Number(l.stocked_quantity) || 0) - (Number(l.reserved_quantity) || 0)
   return total
 }
 
@@ -365,7 +371,9 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
       const p = variant.product
       const content = applyContent(item, variant, p)
       if (content.productUpdate) queueProduct(p, content.productUpdate)
-      const visibility = stock === null ? null : visibilityChange(p, stock)
+      // Visibilidad por lo disponible: el stock nuevo menos lo reservado.
+      const reserved = Number(inventoryItem?.inventory?.location_levels?.find((l) => l.location_id === locationId)?.reserved_quantity) || 0
+      const visibility = stock === null ? null : visibilityChange(p, stock - reserved)
       if (visibility === 'publish') publishCandidates.push({ code: item.code, product: p })
       else if (visibility === 'hide') {
         queueProduct(p, { status: ProductStatus.DRAFT, metadata: { aronium_no_stock: true, aronium_autopublish: false } })
@@ -633,11 +641,7 @@ export async function requestProductResync(container: MedusaContainer, productId
   await updateProductsWorkflow(container).run({
     input: { products: [{ id: productId, metadata: { ...(product.metadata ?? {}), aronium_resync: true } }] },
   })
-  const [agent] = await aronium.listAroniumAgents({}, { take: 1 })
-  const prev = (agent?.refresh_codes as { codes?: unknown } | null | undefined)?.codes
-  const next = [...new Set([...(Array.isArray(prev) ? prev.map(String) : []), ...codes])]
-  if (agent) await aronium.updateAroniumAgents({ id: agent.id, refresh_codes: { codes: next } })
-  else await aronium.createAroniumAgents({ refresh_codes: { codes: next } })
+  await requestCodesRefresh(container, codes)
   return { codes }
 }
 
@@ -803,6 +807,7 @@ async function findVariants(container: MedusaContainer, skus: string[]): Promise
         'inventory_items.inventory.location_levels.id',
         'inventory_items.inventory.location_levels.location_id',
         'inventory_items.inventory.location_levels.stocked_quantity',
+        'inventory_items.inventory.location_levels.reserved_quantity',
       ],
       filters: { sku: skus.slice(i, i + SKU_CHUNK) },
     })

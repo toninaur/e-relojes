@@ -1,3 +1,4 @@
+import { unstable_rethrow } from 'next/navigation'
 import { sdk } from './client'
 
 // Búsqueda y filtros del catálogo sobre el índice `product` de Medusa
@@ -154,6 +155,9 @@ export async function searchCatalog(params: CatalogSearch): Promise<CatalogSearc
       failed: false,
     }
   } catch (err) {
+    // Las señales internas de Next (página dinámica, notFound) no son fallas:
+    // tragarlas dejaría una página estática con el catálogo vacío.
+    unstable_rethrow(err)
     console.error('[medusa] falló la búsqueda del catálogo', err)
     return { ids: [], count: 0, facets: emptyFacets(), onSaleCount: 0, priceCounts: {}, failed: true }
   }
