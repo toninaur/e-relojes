@@ -1,4 +1,6 @@
 import { unstable_rethrow } from 'next/navigation'
+import { correctBrandTypos } from '../brand-typos'
+import { listBrands } from './catalog'
 import { sdk } from './client'
 
 // Búsqueda y filtros del catálogo sobre el índice `product` de Medusa
@@ -108,7 +110,9 @@ function buildFilters(params: CatalogSearch) {
   return filters
 }
 
-export async function searchCatalog(params: CatalogSearch): Promise<CatalogSearchResult> {
+export async function searchCatalog(input: CatalogSearch): Promise<CatalogSearchResult> {
+  // Marca mal escrita ("sieko"): se busca con la marca (lib/brand-typos.ts).
+  const params = input.q ? { ...input, q: correctBrandTypos(input.q, (await listBrands()).map((b) => b.title)) } : input
   try {
     const { results } = await sdk.client.fetch<SearchResponse>('/store/search', {
       method: 'POST',

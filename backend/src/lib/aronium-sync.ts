@@ -838,6 +838,7 @@ async function createDraftProducts(container: MedusaContainer, items: AroniumIte
         // lib/aronium-content.ts. Lo que no se deduce queda para el panel.
         const found = classify(item, [...categoryId.keys()], [...brandId.keys()])
         const category = found.category ? categoryId.get(found.category) : undefined
+        const extra = found.extraCategories.map((c) => categoryId.get(c)).filter((id): id is string => Boolean(id))
         const values = toMetadataValues(parseAroniumContent(item.name, item.description))
         if (found.type && NO_COLOR_TYPES.has(found.type)) values.color = ''
         const barcode = item.barcodes?.find((b) => b.trim())?.trim() ?? ''
@@ -847,7 +848,7 @@ async function createDraftProducts(container: MedusaContainer, items: AroniumIte
           handle: handles.get(item.code)!,
           description: values.description || undefined,
           status: ProductStatus.DRAFT,
-          category_ids: category ? [category] : [],
+          category_ids: category ? [category, ...extra] : [],
           collection_id: found.brand ? brandId.get(found.brand) : undefined,
           type_id: found.type ? typeId.get(found.type) : undefined,
           shipping_profile_id: shippingProfiles[0]?.id,

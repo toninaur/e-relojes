@@ -6,9 +6,14 @@ import { BRAND_ALIASES, BRAND_DEFAULT_TYPE, CATEGORY_DEFAULT_TYPE, GROUP_ALIASES
 
 export interface Classification {
   category: string | null
+  /** Otras categorías donde también va (un Casio de mujer: también "Damas"). */
+  extraCategories: string[]
   brand: string | null
   type: string | null
 }
+
+/** Reloj de mujer: en el local dicen "Damas" en el nombre. */
+export const WOMEN = /\b(damas?|mujer(es)?|ladies|femenino)\b/
 
 /** Sin acentos, minúsculas, y todo lo que no es letra o número como espacio. */
 export function normalize(text: string): string {
@@ -74,12 +79,17 @@ export function classify(
   // caballero en general no dicen nada, así que un reloj sin "Damas" va a
   // Caballeros (si alguno es de dama, se corrige a mano en el panel).
   if (!category && keywordType === 'Reloj') {
-    category = /\b(damas?|mujer(es)?|ladies|femenino)\b/.test(name) ? 'Damas' : 'Caballeros'
+    category = WOMEN.test(name) ? 'Damas' : 'Caballeros'
   }
   if (category && !categories.includes(category)) category = null
 
+  // Casio tiene su categoría, pero sus relojes de mujer también van a "Damas":
+  // si no, quien filtra por Damas no los ve.
+  const extraCategories =
+    category === 'Casio' && (!keywordType || keywordType === 'Reloj') && WOMEN.test(name) && categories.includes('Damas') ? ['Damas'] : []
+
   const type = keywordType ?? (category ? (CATEGORY_DEFAULT_TYPE[category] ?? null) : null)
-  return { category, brand, type }
+  return { category, extraCategories, brand, type }
 }
 
 function findCategory(group: string, categories: string[]): string | null {

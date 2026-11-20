@@ -25,6 +25,14 @@ describe('clasificación de productos nuevos de Aronium', () => {
     expect(run('GA-2100-1ADR', 'Casio G-Shock').category).toBe('Casio')
   })
 
+  it('un Casio de mujer va a Casio y también a Damas; uno de hombre, solo a Casio', () => {
+    expect(run('Casio Damas Vintage LA670WGA-9DF', 'Casio')).toMatchObject({ category: 'Casio', extraCategories: ['Damas'] })
+    expect(run('Casio LTP-V007D-7E Mujer', null)).toMatchObject({ category: 'Casio', extraCategories: ['Damas'] })
+    expect(run('Casio MTP-V001SG-9BUDF', 'Casio').extraCategories).toEqual([])
+    // Otras marcas: Damas es la categoría principal, sin extra.
+    expect(run('Curren Damas 9024 Gold', 'Curren')).toMatchObject({ category: 'Damas', extraCategories: [] })
+  })
+
   it('un reloj con "Damas" o "Caballeros" en el nombre va a esa categoría', () => {
     expect(run('Curren Damas 9024 Gold', 'Curren')).toMatchObject({ category: 'Damas', brand: 'Curren', type: 'Reloj' })
     expect(run('Invicta Caballeros Pro Diver 8926', 'Invicta').category).toBe('Caballeros')
