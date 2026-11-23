@@ -5,10 +5,11 @@ import { createApi } from './api.mjs'
 import { pendingEntry, writeAlerts } from './alerts.mjs'
 import { backupIfNeeded } from './backup.mjs'
 import { CONFIG_PATH, loadConfig } from './config.mjs'
-import { acquireLock } from './lock.mjs'
+import { acquireLock, LOCK_ADDRESS } from './lock.mjs'
 import { errorMessage, log } from './log.mjs'
 import { checkSchema } from './schema.mjs'
 import { loadState, saveState } from './state.mjs'
+import { takeOrder, writeStatus } from './status.mjs'
 import { AroniumDataError, createWriter, isTransient } from './write.mjs'
 
 // Sincronizador Aronium Lite ↔ tienda online (docs/sincronizador-aronium.md).
@@ -27,10 +28,15 @@ import { AroniumDataError, createWriter, isTransient } from './write.mjs'
 //    descuenta dos veces.
 // 4. Fotos que pidió la tienda.
 //
+// Entre pasadas atiende al programa de la PC (Sincronizador.exe): le cuenta
+// cómo anda en status.json y, si pide "Sincronizar ahora", no espera al
+// próximo turno (status.mjs). Con "paused" en config.json (Pausar, desde el
+// programa) no lee ni escribe nada.
+//
 //   node src/index.mjs          corre en bucle (lo que usa la tarea programada)
 //   node src/index.mjs --once   una sola pasada completa y termina
 
-const VERSION = '0.9.0'
+const VERSION = '0.10.0'
 const FULL_EVERY_MINUTES = 30
 const IMAGE_BATCH_SIZE = 10
 
@@ -73,6 +79,39 @@ const agent = {
 const BUSY = 'Aronium ocupado (la caja está grabando): los pedidos web esperan a la próxima pasada.'
 let schema = { ok: false, reason: BUSY, busy: true }
 
+// Para el programa de la PC (status.mjs).
+const PAUSED_LOCAL = 'Sincronizador pausado desde la PC del local (programa Sincronizador): no lee Aronium ni registra pedidos web hasta que lo reanuden ahí.'
+let pausedLocal = false
+const status = {
+  version: VERSION,
+  pid: process.pid,
+  lock: LOCK_ADDRESS,
+  started_at: new Date().toISOString(),
+  state: 'running',
+  interval_minutes: config.intervalMinutes,
+  interval_from_panel: config.intervalFromPanel,
+  last_pass_at: null,
+  last_pass_ok: null,
+  next_pass_at: null,
+  store_ok_at: null,
+  store_error: null,
+  store_error_since: null,
+  aronium_ok_at: null,
+  aronium_error: null,
+  products: null,
+  write_enabled: false,
+  write_blocked_reason: null,
+}
+function storeOk() {
+  status.store_ok_at = new Date().toISOString()
+  status.store_error = null
+  status.store_error_since = null
+}
+function storeFailed(error) {
+  if (!status.store_error) status.store_error_since = new Date().toISOString()
+  status.store_error = errorMessage(error)
+}
+
 const once = process.argv.includes('--once')
 // Un solo agente por carpeta (lock.mjs).
 if (!(await acquireLock())) {
@@ -94,16 +133,39 @@ if (once) {
   })
   refreshWriteState()
   log(`Agente ${VERSION} iniciado: ${config.storeUrl}, cada ${config.intervalMinutes} min${agent.write_enabled ? ', con pedidos web' : ''}`)
+  writeStatus(status)
+  let forceFull = false
   for (;;) {
     try {
-      await pass()
+      await pass({ forceFull })
     } catch (error) {
       log(`ERROR inesperado en la pasada: ${errorMessage(error)}`)
     }
     // SINCRONIZADOR_PRUEBA_MS: solo para las pruebas (test/agent.test.mjs),
     // pasadas seguidas sin esperar minutos.
-    await new Promise((r) => setTimeout(r, Number(process.env.SINCRONIZADOR_PRUEBA_MS) || intervalMinutes * 60 * 1000))
+    const waitMs = Number(process.env.SINCRONIZADOR_PRUEBA_MS) || intervalMinutes * 60 * 1000
+    status.next_pass_at = new Date(Date.now() + waitMs).toISOString()
+    writeStatus(status)
+    const order = await waitForTurn(waitMs)
+    forceFull = order === 'full'
+    if (order === 'full') log('Pasada completa pedida desde el programa de la PC.')
+    else if (order === 'sync') log('"Sincronizar ahora" pedido desde el programa de la PC.')
   }
+}
+
+/**
+ * Espera el próximo turno, salvo que el programa de la PC pida una pasada
+ * ("sync" o "full") o cambie config.json (Pausar / Reanudar: "config").
+ */
+async function waitForTurn(ms) {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    await new Promise((r) => setTimeout(r, Math.min(1000, end - Date.now())))
+    const order = takeOrder()
+    if (order) return order
+    if (mtimeOf(CONFIG_PATH) !== configMtime) return 'config'
+  }
+  return null
 }
 
 function mtimeOf(file) {
@@ -125,7 +187,9 @@ function reloadConfigIfChanged() {
     config = next
     api = createApi(config)
     writer = createWriter(config)
-    if (intervalChanged) intervalMinutes = config.intervalMinutes
+    // Con la frecuencia fijada en la PC, vale la de config.json aunque el panel
+    // haya puesto otra antes.
+    if (intervalChanged || !config.intervalFromPanel) intervalMinutes = config.intervalMinutes
     log(`config.json cambió: se usa la nueva configuración (${config.storeUrl}, cada ${intervalMinutes} min).`)
   } catch (error) {
     log(`ERROR: config.json cambió pero no se puede usar (${errorMessage(error)}). Se sigue con la configuración anterior.`)
@@ -170,6 +234,12 @@ function refreshWriteState() {
 async function pass({ forceFull = false } = {}) {
   let ok = true
   reloadConfigIfChanged()
+  status.interval_from_panel = config.intervalFromPanel
+  if (config.paused) return pausedPass()
+  if (pausedLocal) log('Sincronización reanudada desde la PC.')
+  pausedLocal = false
+  status.state = 'passing'
+  writeStatus(status)
   refreshWriteState()
   try {
     await flushResults()
@@ -177,11 +247,36 @@ async function pass({ forceFull = false } = {}) {
   } catch (error) {
     // Sin conexión con la tienda, etc.: el catálogo se intenta igual.
     log(`ERROR (ventas web): ${errorMessage(error)}`)
+    if (/tienda/i.test(errorMessage(error))) storeFailed(error)
     ok = false
   }
   ok = (await catalog(forceFull)) && ok
   saveState(state)
+  status.state = wasPaused ? 'paused_panel' : 'running'
+  status.last_pass_at = new Date().toISOString()
+  status.last_pass_ok = ok
+  status.interval_minutes = intervalMinutes
+  status.write_enabled = agent.write_enabled
+  status.write_blocked_reason = agent.write_blocked_reason
+  writeStatus(status)
   return ok
+}
+
+/** Pausado desde la PC: nada de Aronium; solo le avisa a la tienda, para que el panel lo muestre. */
+async function pausedPass() {
+  if (!pausedLocal) log('Sincronización pausada desde la PC: no se lee Aronium ni se registran pedidos web hasta reanudar.')
+  pausedLocal = true
+  status.state = 'paused_local'
+  try {
+    await api.sync({ agent: { ...agent, interval_minutes: intervalMinutes }, error: PAUSED_LOCAL })
+    storeOk()
+  } catch (error) {
+    storeFailed(error)
+  }
+  status.last_pass_at = new Date().toISOString()
+  status.last_pass_ok = true
+  writeStatus(status)
+  return true
 }
 
 // ---- 1. Resultados pendientes ----------------------------------------------
@@ -294,7 +389,8 @@ function backup() {
 /** Ajustes del panel → Aronium que llegan en la respuesta de la tienda. */
 function applySettings(settings) {
   if (!settings) return
-  const wanted = settings.interval_minutes ?? config.intervalMinutes
+  // Frecuencia fijada en la PC (intervalFromPanel: false): el panel no la cambia.
+  const wanted = config.intervalFromPanel ? (settings.interval_minutes ?? config.intervalMinutes) : config.intervalMinutes
   const next = Math.min(30, Math.max(1, Math.round(Number(wanted) || config.intervalMinutes)))
   if (next !== intervalMinutes) {
     log(`Frecuencia cambiada desde el panel: cada ${next} min`)
@@ -315,6 +411,9 @@ async function catalog(forceFull) {
       // El producto del costo de envío no se vende en la tienda (aunque en
       // Aronium lo hayan cargado como producto común y no como servicio).
       .filter((p) => p.code !== config.webSales.shippingCode)
+    status.aronium_ok_at = new Date().toISOString()
+    status.aronium_error = null
+    status.products = products.length
   } catch (error) {
     if (isTransient(error)) {
       // La caja estaba grabando más de 5 segundos: no es un problema para
@@ -329,6 +428,7 @@ async function catalog(forceFull) {
       : ''
     const message = `No se pudo leer Aronium (${config.aroniumDb}): ${errorMessage(error)}.${hint}`
     log(`ERROR: ${message}`)
+    status.aronium_error = message
     // Que el panel lo muestre; si tampoco hay conexión, queda solo en el log.
     await api.sync({ agent, error: message }).catch(() => {})
     return false
@@ -348,6 +448,7 @@ async function catalog(forceFull) {
 
   try {
     const result = await api.sync({ agent: { ...agent, interval_minutes: intervalMinutes }, full, items })
+    storeOk()
     applySettings(result.settings)
     if (result.paused) {
       // Pausado desde el panel: la tienda no aplicó nada, así que no se toma
@@ -390,6 +491,7 @@ async function catalog(forceFull) {
     return true
   } catch (error) {
     log(`ERROR: ${errorMessage(error)}`)
+    if (/tienda/i.test(errorMessage(error))) storeFailed(error)
     return false
   }
 }

@@ -11,13 +11,13 @@ import { ROOT } from './config.mjs'
 // reutilizados.
 
 const id = createHash('sha256').update(ROOT.toLowerCase()).digest('hex').slice(0, 16)
-const address = process.platform === 'win32' ? `\\\\.\\pipe\\sincronizador-aronium-${id}` : path.join(os.tmpdir(), `sincronizador-aronium-${id}.sock`)
+export const LOCK_ADDRESS = process.platform === 'win32' ? `\\\\.\\pipe\\sincronizador-aronium-${id}` : path.join(os.tmpdir(), `sincronizador-aronium-${id}.sock`)
 
 function listen() {
   return new Promise((resolve) => {
     const server = net.createServer((socket) => socket.end())
     server.once('error', (error) => resolve(error.code ?? 'error'))
-    server.listen(address, () => {
+    server.listen(LOCK_ADDRESS, () => {
       // No impide que el proceso termine (--once).
       server.unref()
       resolve('ok')
@@ -28,7 +28,7 @@ function listen() {
 /** ¿Hay un agente vivo escuchando? */
 function alive() {
   return new Promise((resolve) => {
-    const socket = net.connect(address, () => {
+    const socket = net.connect(LOCK_ADDRESS, () => {
       socket.destroy()
       resolve(true)
     })
@@ -43,7 +43,7 @@ export async function acquireLock() {
   // Fuera de Windows, un socket de un proceso que murió queda como archivo.
   if (process.platform !== 'win32' && first === 'EADDRINUSE' && !(await alive())) {
     const fs = await import('node:fs')
-    fs.rmSync(address, { force: true })
+    fs.rmSync(LOCK_ADDRESS, { force: true })
     return (await listen()) === 'ok'
   }
   return false

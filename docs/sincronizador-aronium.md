@@ -202,8 +202,9 @@ manda:** si el cliente ya existe, solo se completan los campos vacíos.
 El agente corre como tarea de Windows con el usuario SYSTEM (arranca aunque nadie
 inicie sesión), y Windows no deja que esas tareas muestren nada en pantalla. Por
 eso los avisos de la PC son un **segundo programa chico** que arranca al iniciar
-sesión el usuario del local y lee el estado del agente (`state.json` o un puerto
-local).
+sesión el usuario del local y lee el estado del agente (`status.json`,
+`avisos.json`): `Sincronizador.exe`, que además permite configurarlo, pausarlo y
+reiniciarlo sin internet.
 
 ## 5. Seguridad de los datos de Aronium
 
@@ -258,6 +259,9 @@ local).
    duplicadas, stock insuficiente).
 4. **Avisos en la PC:** programa de bandeja que arranca al iniciar sesión.
    *Hecho 18/11 (agente 0.7.1): `connector/avisos.ps1` lee `avisos.json`.*
+   *22/11 (agente 0.10.0): lo reemplaza `Sincronizador.exe` (`connector/panel/`),
+   con estado, bitácora, pedidos web y configuración en la PC, sin internet
+   (connector/README.md, "Programa de la PC del local").*
 5. **Pruebas** sobre copia de `pos.db` y después con Aronium abierto: que la
    proforma se vea y se pueda imprimir, que "Pagado" dispare la venta, que la
    numeración 230 y 200 no se repita.

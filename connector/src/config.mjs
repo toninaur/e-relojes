@@ -48,6 +48,11 @@ export function loadConfig({ exitOnError = true } = {}) {
       : path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local'), 'Aronium', 'Data', 'pos.db'),
     warehouseId: raw.warehouseId ? Number(raw.warehouseId) : null,
     intervalMinutes: Math.min(MAX_INTERVAL, Math.max(MIN_INTERVAL, Math.round(Number(raw.intervalMinutes) || DEFAULT_INTERVAL))),
+    // Desde el programa de la PC (Sincronizador.exe), sin internet: pausa todo
+    // y, con intervalFromPanel en false, la frecuencia es la de acá y el panel
+    // de la tienda no la cambia.
+    paused: raw.paused === true,
+    intervalFromPanel: raw.intervalFromPanel !== false,
     backupDir: raw.backupDir ? expand(raw.backupDir) : path.join(ROOT, 'backups'),
     keepBackups: Math.max(1, Number(raw.keepBackups) || 14),
     // Pedidos web → Aronium (docs/sincronizador-aronium.md, punto 4.2 y

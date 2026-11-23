@@ -3,7 +3,7 @@ import path from 'node:path'
 import { ROOT } from './config.mjs'
 
 // avisos.json: lo que muestra el programa de avisos de la PC del local
-// (avisos.ps1). El agente corre como SYSTEM y Windows no lo deja mostrar nada
+// (Sincronizador.exe, carpeta panel/). El agente corre como SYSTEM y Windows no lo deja mostrar nada
 // en pantalla; el programa de avisos corre con el usuario que inició sesión y
 // lee este archivo.
 //

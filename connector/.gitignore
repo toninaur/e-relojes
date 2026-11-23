@@ -5,3 +5,7 @@ state.json.tmp
 backups/
 avisos.json
 avisos.json.tmp
+status.json
+status.json.tmp
+comandos/
+Sincronizador.exe

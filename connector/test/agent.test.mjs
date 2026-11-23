@@ -567,3 +567,85 @@ describe('condiciones de la PC del local', () => {
     assert.equal(read(dir, 'avisos.json').interval_minutes, 30)
   })
 })
+
+// ---- Programa de la PC (Sincronizador.exe) -------------------------------------
+
+describe('agente ↔ programa de la PC', () => {
+  it('status.json: cómo anduvo la última pasada, la tienda y Aronium', async () => {
+    const dir = agentDir()
+    const { code, out } = await runAgent(dir)
+    assert.equal(code, 0, out)
+    const st = read(dir, 'status.json')
+    assert.equal(st.state, 'running')
+    assert.equal(st.last_pass_ok, true)
+    assert.ok(st.store_ok_at)
+    assert.equal(st.store_error, null)
+    assert.ok(st.products > 0)
+    assert.match(st.lock, /sincronizador-aronium-/)
+  })
+
+  it('sin internet: status.json dice desde cuándo no llega a la tienda', async () => {
+    const dir = agentDir({ storeUrl: 'http://127.0.0.1:9' })
+    await runAgent(dir)
+    const st = read(dir, 'status.json')
+    assert.equal(st.last_pass_ok, false)
+    assert.match(st.store_error, /Sin conexión/)
+    assert.ok(st.store_error_since)
+    assert.ok(st.aronium_ok_at, 'Aronium se leyó igual')
+  })
+
+  it('pausado desde la PC: no pide pedidos ni manda catálogo, solo avisa a la tienda', async () => {
+    const dir = agentDir({ paused: true })
+    const i = requests.length
+    const { code, out } = await runAgent(dir)
+    assert.equal(code, 0, out)
+    const sent = since(i)
+    assert.equal(sent.filter((r) => r.url.includes('/web-sales')).length, 0)
+    assert.equal(sent.length, 1)
+    assert.match(sent[0].body.error, /pausado desde la PC/)
+    assert.equal(sent[0].body.items, undefined)
+    assert.equal(read(dir, 'status.json').state, 'paused_local')
+    assert.match(logOf(dir), /pausada desde la PC/)
+  })
+
+  it('Reanudar (paused en false con el agente andando): vuelve a sincronizar sin esperar el turno', async () => {
+    const dir = agentDir({ paused: true, intervalMinutes: 30 })
+    const file = path.join(dir, 'config.json')
+    const i = requests.length
+    const run = runAgent(dir, { loopMs: 5000 })
+    await sleep(1500)
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), paused: false }))
+    await run
+    assert.ok(since(i).some((r) => r.url.endsWith('/sync') && Array.isArray(r.body.items)), 'mandó el catálogo')
+    assert.match(logOf(dir), /reanudada desde la PC/)
+  })
+
+  it('"Sincronizar ahora" (comandos/orden.json): pasada completa sin esperar el turno y la borra', async () => {
+    const dir = agentDir({ intervalMinutes: 30 })
+    fs.mkdirSync(path.join(dir, 'comandos'))
+    const i = requests.length
+    const run = runAgent(dir, { loopMs: 5000 })
+    await sleep(2000)
+    fs.writeFileSync(path.join(dir, 'comandos', 'orden.json'), JSON.stringify({ command: 'full' }))
+    await run
+    const syncs = since(i).filter((r) => r.url.endsWith('/sync'))
+    assert.equal(syncs.length, 2)
+    assert.equal(syncs[1].body.full, true)
+    assert.ok(!fs.existsSync(path.join(dir, 'comandos', 'orden.json')))
+    assert.match(logOf(dir), /Pasada completa pedida desde el programa/)
+    assert.ok(read(dir, 'status.json').next_pass_at)
+  })
+
+  it('frecuencia fijada en la PC (intervalFromPanel: false): el panel no la cambia', async () => {
+    handler = (r) => (r.url.endsWith('/sync') ? { json: { created: 0, settings: { interval_minutes: 10, full_requested: false } } } : null)
+    const dir = agentDir({ intervalMinutes: 3, intervalFromPanel: false })
+    const i = requests.length
+    await runAgent(dir)
+    handler = () => null
+    assert.equal(read(dir, 'status.json').interval_minutes, 3)
+    assert.equal(read(dir, 'status.json').interval_from_panel, false)
+    assert.ok(since(i).length)
+    const logged = fs.existsSync(path.join(dir, 'connector.log')) ? logOf(dir) : ''
+    assert.doesNotMatch(logged, /Frecuencia cambiada desde el panel/)
+  })
+})

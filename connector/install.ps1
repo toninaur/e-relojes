@@ -3,16 +3,38 @@
 # Hay que correrlo en PowerShell "como administrador", en la carpeta del
 # conector y con el usuario que usa Aronium.
 #
+# También instala el programa de la PC (Sincronizador.exe, carpeta panel\):
+# ícono junto al reloj con el estado, la bitácora, los pedidos web y la
+# configuración. Se abre solo al iniciar sesión y desde el menú Inicio o el
+# escritorio ("Sincronizador Aronium"). Reemplaza al viejo avisos.ps1.
+#
 #   powershell -ExecutionPolicy Bypass -File install.ps1             instalar
 #   powershell -ExecutionPolicy Bypass -File install.ps1 -Prueba     solo revisar (no instala ni toca nada)
 #   powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall  quitar
 param([switch]$Uninstall, [switch]$Prueba)
 
 $TaskName = 'Sincronizador Aronium - Tienda'
-$AlertsTaskName = 'Avisos pedidos web - Tienda'
+$AlertsTaskName = 'Avisos pedidos web - Tienda'  # la del viejo avisos.ps1 (lo reemplaza Sincronizador.exe): se quita
 $OldTaskName = 'Conector Aronium - Tienda'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $Root 'config.json'
+$Exe = Join-Path $Root 'Sincronizador.exe'
+$ShortcutName = 'Sincronizador Aronium.lnk'
+$Shortcuts = @(
+  @{ Path = Join-Path ([Environment]::GetFolderPath('CommonStartup')) $ShortcutName; Args = '--oculto' },
+  @{ Path = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) $ShortcutName; Args = '' },
+  @{ Path = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) $ShortcutName; Args = '' }
+)
+# Grupo "Usuarios" por SID (sirve con Windows en cualquier idioma).
+$UsersSid = 'S-1-5-32-545'
+
+# Cierra el programa de la PC y el viejo avisos.ps1 (para reemplazarlos o quitarlos).
+function Stop-Programa {
+  Get-Process Sincronizador -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Exe } | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match 'avisos\.ps1' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
 
 $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
@@ -33,7 +55,12 @@ foreach ($name in @($TaskName, $OldTaskName, $AlertsTaskName)) {
     Unregister-ScheduledTask -TaskName $name -Confirm:$false
   }
 }
-if ($Uninstall) { Write-Host "Sincronizador quitado."; exit 0 }
+Stop-Programa
+if ($Uninstall) {
+  foreach ($s in $Shortcuts) { Remove-Item $s.Path -ErrorAction SilentlyContinue }
+  Write-Host "Sincronizador quitado (la tarea, el programa de la PC y sus accesos directos). La carpeta queda como está."
+  exit 0
+}
 
 $Node = (Get-Command node -ErrorAction SilentlyContinue).Source
 if (-not $Node) { Write-Error 'No se encontró Node.js. Instalá Node 22.13 o más nuevo (nodejs.org).'; exit 1 }
@@ -102,17 +129,43 @@ if ($Running) {
   Write-Warning "La tarea '$TaskName' quedó instalada pero no se ve corriendo (estado: $State). Revisá $LogPath y el Programador de tareas."
 }
 
-# Avisos de pedidos web junto al reloj de Windows (avisos.ps1): arranca al
-# iniciar sesión cualquier usuario de la PC, con su usuario (los avisos de
-# Windows no se pueden mostrar desde la tarea del sistema).
-$AlertsAction = New-ScheduledTaskAction -Execute 'powershell.exe' `
-  -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Root\avisos.ps1`"" -WorkingDirectory $Root
-$AlertsTrigger = New-ScheduledTaskTrigger -AtLogOn
-$AlertsSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-  -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-# S-1-5-32-545 = grupo "Usuarios" (sirve con Windows en cualquier idioma).
-$AlertsPrincipal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
-Register-ScheduledTask -TaskName $AlertsTaskName -Action $AlertsAction -Trigger $AlertsTrigger -Settings $AlertsSettings `
-  -Principal $AlertsPrincipal -Force | Out-Null
-Start-ScheduledTask -TaskName $AlertsTaskName -ErrorAction SilentlyContinue
-Write-Host "Listo: '$AlertsTaskName' instalado. Ícono de avisos junto al reloj al iniciar sesión."
+# ---- Programa de la PC (Sincronizador.exe) ------------------------------------
+# Corre con el usuario que inició sesión (los avisos de Windows no se pueden
+# mostrar desde la tarea del sistema). Para que la cajera pueda manejarlo sin
+# ser administradora:
+# - iniciar o reiniciar la tarea (leer y ejecutar; no puede cambiarla, porque
+#   corre como sistema);
+# - guardar config.json (solo ese archivo: el código de src\ lo sigue
+#   cambiando solo un administrador, porque corre como sistema);
+# - dejar órdenes en comandos\ ("Sincronizar ahora").
+try {
+  $Service = New-Object -ComObject Schedule.Service
+  $Service.Connect()
+  $Task = $Service.GetFolder('\').GetTask($TaskName)
+  $Sddl = $Task.GetSecurityDescriptor(4)  # 4 = solo los permisos (DACL)
+  if ($Sddl -notmatch '\(A;;GRGX;;;BU\)') { $Task.SetSecurityDescriptor($Sddl + '(A;;GRGX;;;BU)', 0) }
+} catch {
+  Write-Warning "No se pudo dar permiso a los usuarios para iniciar la tarea ($($_.Exception.Message)): el programa va a pedir la clave de administrador para iniciarla."
+}
+icacls $ConfigPath /grant "*${UsersSid}:(M)" | Out-Null
+$Commands = Join-Path $Root 'comandos'
+New-Item -ItemType Directory -Force $Commands | Out-Null
+icacls $Commands /grant "*${UsersSid}:(OI)(CI)(M)" | Out-Null
+
+& (Join-Path $Root 'panel\build.ps1') -Out $Exe
+if (-not (Test-Path $Exe)) { Write-Error 'No se pudo compilar Sincronizador.exe: el sincronizador quedó instalado y andando igual, pero sin el programa de la PC.'; exit 1 }
+
+$Shell = New-Object -ComObject WScript.Shell
+foreach ($s in $Shortcuts) {
+  $link = $Shell.CreateShortcut($s.Path)
+  $link.TargetPath = $Exe
+  $link.Arguments = $s.Args
+  $link.WorkingDirectory = $Root
+  $link.IconLocation = "$Exe,0"
+  $link.Description = 'Estado, bitácora, pedidos web y configuración del sincronizador Aronium ↔ tienda'
+  $link.Save()
+}
+# Se abre con el usuario de la sesión, no como administrador (explorer.exe lo
+# lanza sin permisos elevados).
+Start-Process explorer.exe -ArgumentList "`"$Exe`""
+Write-Host "Listo: programa 'Sincronizador Aronium' instalado (ícono junto al reloj; también en el menú Inicio y el escritorio)."

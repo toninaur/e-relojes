@@ -135,7 +135,7 @@ Los nombres se cambian en `config.json` → `webSales`.
    de pago y envío), hace una pasada de prueba y deja una tarea programada que
    **arranca con Windows** (aunque nadie inicie sesión) y que, si el agente se
    cierra, lo vuelve a abrir en 5 minutos. Al final verifica que quedó
-   corriendo.
+   corriendo e instala el programa de la PC (ver abajo).
 
 Para quitarlo: `install.ps1 -Uninstall`.
 
@@ -155,20 +155,51 @@ Para quitarlo: `install.ps1 -Uninstall`.
 - **Sin internet**: lo escrito en Aronium queda guardado y se informa al
   volver. El registro anota cada error repetido una vez por hora.
 
-## Avisos en la PC del local
+## Programa de la PC del local (Sincronizador.exe)
 
-`avisos.ps1` pone un ícono junto al reloj de Windows. Cuando entra un pedido
-web muestra un aviso ("Pedido web PW-1042-K7 — Juan Pérez — Gs. 1.250.000") y,
-con doble clic, la lista de proformas que esperan que la cajera las marque
-"Pagado". Avisa también los pedidos con error, si los pedidos web están **en
-pausa** (y por qué: el reloj de la PC, una versión nueva de Aronium) y si el
-sincronizador dejó de responder (más de 10 minutos sin novedades, o el doble
-de la frecuencia si en el panel se puso más larga).
+Para manejar el sincronizador **en la PC, sin internet y sin entrar al panel**.
+Ícono junto al reloj de Windows: verde (funcionando), amarillo (en pausa, con
+errores, pedidos web en pausa) o rojo (detenido, sin conexión con la tienda,
+no puede leer Aronium). También está en el menú Inicio y en el escritorio como
+**Sincronizador Aronium**. La X cierra la ventana pero el ícono sigue.
 
-El sincronizador corre como tarea del sistema, que no puede mostrar nada en
-pantalla: escribe `avisos.json` en cada pasada y `avisos.ps1` (con el usuario
-que inició sesión) lo lee cada 15 segundos. Lo instala `install.ps1` como
-tarea "Avisos pedidos web - Tienda", que arranca al iniciar sesión.
+| Pestaña | Qué tiene |
+|---|---|
+| **Estado** | Si está corriendo, la última y la próxima pasada, la conexión con la tienda, Aronium, pedidos web, frecuencia y la última actividad. Botones: **Sincronizar ahora**, **Pasada completa**, **Pausar / Reanudar**, **Iniciar**, **Reiniciar**, **Revisar todo** (lo mismo que `install.ps1 -Prueba`), **Abrir en ventana (diagnóstico)**, panel de la tienda y carpeta |
+| **Bitácora** | `connector.log` en hora local, con los errores en rojo; filtro "solo errores y avisos" |
+| **Pedidos web** | Las proformas que esperan que la cajera las marque "Pagado" y los pedidos con error |
+| **Configuración** | Todo `config.json` con campos: tienda y claves (conector y de administrador vieja), base de Aronium, depósito, frecuencia (y si el panel la puede cambiar), pedidos web (usuario, consumidor final, formas de pago, envío, tipo de servicio), copias de respaldo y los avisos de este programa. Guarda sin reiniciar nada; la versión anterior queda en `%APPDATA%\SincronizadorAronium\config-anterior.json` |
+
+**Avisos** (globos de Windows, se apagan en Configuración → Este programa):
+- *Pedidos web* (lo que antes hacía `avisos.ps1`): pedido nuevo ("Pedido web
+  PW-1042-K7 — Juan Pérez — Gs. 1.250.000"), pedido con error y pedidos web en
+  pausa (y por qué: el reloj de la PC, una versión nueva de Aronium).
+- *El sincronizador*: detenido más de un minuto, o sin conexión con la tienda
+  más de 5 minutos.
+
+Cómo se comunica: el sincronizador corre como tarea del sistema, que no puede
+mostrar nada en pantalla, y el programa corre con el usuario que inició sesión.
+Se hablan por archivos en la carpeta (`src/status.mjs`):
+
+| Archivo | Lo escribe | Para qué |
+|---|---|---|
+| `status.json` | el sincronizador | Cómo anda: última pasada, tienda, Aronium, próxima pasada |
+| `avisos.json` | el sincronizador | Pedidos web que esperan pago |
+| `connector.log` | el sincronizador | Bitácora |
+| `config.json` | el programa | Configuración; el sincronizador la relee sola. `"paused": true` = Pausar; `"intervalFromPanel": false` = la frecuencia es la de acá y el panel no la cambia; `"alerts"` = los avisos del programa |
+| `comandos/orden.json` | el programa | "Sincronizar ahora" / "Pasada completa": el sincronizador la toma en un segundo |
+
+Si está corriendo lo sabe por el candado de `src/lock.mjs` (no depende de
+internet ni de `status.json`). Pausado desde la PC, el sincronizador no lee ni
+escribe Aronium pero le sigue avisando a la tienda, así el panel muestra
+"pausado desde la PC" en vez de "sin conexión".
+
+`install.ps1` lo compila (`panel/build.ps1`, con el compilador de C# que trae
+Windows: no hay que instalar nada), crea los accesos directos y da permiso a
+los usuarios de la PC para iniciar la tarea, guardar `config.json` y dejar
+órdenes en `comandos/`. No les da permiso sobre `src/`, que corre como
+sistema. Sin esos permisos (instalación vieja), el programa pide la clave de
+administrador cuando la necesita.
 
 ## Uso y diagnóstico
 
@@ -176,7 +207,11 @@ tarea "Avisos pedidos web - Tienda", que arranca al iniciar sesión.
 - `connector.log`: el registro en la computadora del local.
 - `backups/`: una copia de `pos.db` por día (las últimas 14).
 - `state.json`: lo que el agente recuerda entre reinicios (no tocar).
-- `avisos.json`: lo que muestran los avisos de la PC (lo reescribe cada pasada).
+- `avisos.json` y `status.json`: lo que muestra el programa de la PC (los reescribe cada pasada).
+- **Si no arranca** (después de prender la PC o de un error): Windows lo vuelve
+  a abrir solo cada 5 minutos. A mano: programa **Sincronizador Aronium** →
+  **Iniciar** (o **Reiniciar**). Para ver por qué se cae: **Abrir en ventana
+  (diagnóstico)**, con el sincronizador detenido.
 - `npm run revisar`: la misma revisión que `install.ps1 -Prueba`.
 - `npm run once`: una pasada a mano. `npm test`: pruebas del agente sobre una
   **copia** de `pos.db` (nunca la base real); con `ARONIUM_TEST_DB=<copia>`,
