@@ -634,6 +634,32 @@ export async function updateAgentSettings(container: MedusaContainer, input: z.i
   return getAroniumStatus(container, { limit: 1 })
 }
 
+/**
+ * Pedido web nuevo: si se llevó la última unidad, el producto se oculta ya,
+ * sin esperar a la próxima pasada del agente (con la PC del local apagada,
+ * de noche, la tienda mostraría "Sin stock" durante horas). Misma regla que la
+ * pasada (`visibilityChange`); vuelve solo si el pedido se cancela o entra
+ * stock. Devuelve los códigos ocultados.
+ */
+export async function hideSoldOut(container: MedusaContainer, skus: string[]): Promise<string[]> {
+  const codes = [...new Set(skus.filter(Boolean))]
+  if (!codes.length) return []
+  const hidden: string[] = []
+  const updates = new Map<string, { id: string; status: ProductStatus; metadata: Record<string, unknown> }>()
+  for (const variant of await findVariants(container, codes)) {
+    const product = variant.product
+    if (!product || !variant.sku || visibilityChange(product, variantStock(variant)) !== 'hide') continue
+    updates.set(product.id, {
+      id: product.id,
+      status: ProductStatus.DRAFT,
+      metadata: { ...(product.metadata ?? {}), aronium_no_stock: true, aronium_autopublish: false },
+    })
+    hidden.push(variant.sku)
+  }
+  if (updates.size) await updateProductsWorkflow(container).run({ input: { products: [...updates.values()] } })
+  return hidden
+}
+
 /** Panel → "Tomar de Aronium": la próxima pasada vuelve a copiar todo el contenido. */
 export async function requestProductResync(container: MedusaContainer, productId: string) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
