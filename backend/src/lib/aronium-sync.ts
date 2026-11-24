@@ -312,12 +312,40 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
 
   const variants = await findVariants(container, items.map((i) => i.code))
   const bySku = new Map(variants.map((v) => [v.sku!, v]))
-  const skuOf = new Map(variants.map((v) => [v.id, v.sku!]))
+
+  // Le cargaron código en Aronium a un producto que no tenía: en la tienda
+  // está con su código de barras como SKU (el agente lo usa cuando falta el
+  // código). Se le cambia el SKU en vez de crear otro producto.
+  const present = new Set(items.map((i) => i.code))
+  const candidates = items.filter((i) => i.enabled && !bySku.has(i.code) && i.barcodes?.length)
+  const oldSkus = [...new Set(candidates.flatMap((i) => i.barcodes!.map((b) => b.trim()).filter((b) => b && !present.has(b))))]
+  const byOldSku = new Map((oldSkus.length ? await findVariants(container, oldSkus) : []).map((v) => [v.sku!, v]))
+  const renames: { id: string; sku: string }[] = []
+  for (const item of candidates) {
+    const old = item.barcodes!.map((b) => byOldSku.get(b.trim())).find(Boolean)
+    if (!old) continue
+    byOldSku.delete(old.sku!)
+    renames.push({ id: old.id, sku: item.code })
+    changes.push({
+      code: item.code,
+      product_id: old.product?.id,
+      product_title: old.product?.title,
+      field: 'content',
+      old_value: old.sku,
+      new_value: `código cambiado en Aronium: ${old.sku} → ${item.code}`,
+    })
+    old.sku = item.code
+    bySku.set(item.code, old)
+  }
+  if (renames.length) {
+    await updateProductVariantsWorkflow(container).run({ input: { product_variants: renames } })
+  }
+  const skuOf = new Map([...bySku.values()].map((v) => [v.id, v.sku!]))
 
   // Regla 4: ventas web que Aronium ya restó y la tienda tiene reservadas, o
   // canceladas cuya devolución todavía no llegó a Aronium.
   const inventoryBySku = new Map(
-    variants.flatMap((v) => (v.sku && v.inventory_items?.[0] ? [[v.sku, v.inventory_items[0].inventory_item_id] as [string, string]] : []))
+    [...bySku.values()].flatMap((v) => (v.sku && v.inventory_items?.[0] ? [[v.sku, v.inventory_items[0].inventory_item_id] as [string, string]] : []))
   )
   const adjustments = await webSaleStockAdjustments(container, inventoryBySku)
 
@@ -328,6 +356,10 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
   const queueProduct = (p: ProductRow, patch: ProductPatch) => {
     const prev = productUpdates.get(p.id)
     productUpdates.set(p.id, { ...prev, ...patch, id: p.id, metadata: { ...(prev?.metadata ?? p.metadata ?? {}), ...patch.metadata } })
+  }
+  for (const r of renames) {
+    const p = bySku.get(r.sku)?.product
+    if (p) queueProduct(p, { metadata: { aronium_code: r.sku } })
   }
   const publishCandidates: { code: string; product: ProductRow }[] = []
   const levelCreates: { inventory_item_id: string; location_id: string; stocked_quantity: number }[] = []
@@ -399,7 +431,6 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
   }
 
   // Códigos que venían activos y ya no están en Aronium (borrados): baja.
-  const present = new Set(items.map((i) => i.code))
   // Solo en una pasada completa: en una parcial faltan todos los que no cambiaron.
   const gone = full && known ? [...known].filter((code) => !present.has(code)) : []
   for (const variant of gone.length ? await findVariants(container, gone) : []) {
