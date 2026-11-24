@@ -312,6 +312,7 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
 
   const variants = await findVariants(container, items.map((i) => i.code))
   const bySku = new Map(variants.map((v) => [v.sku!, v]))
+  const skuOf = new Map(variants.map((v) => [v.id, v.sku!]))
 
   // Regla 4: ventas web que Aronium ya restó y la tienda tiene reservadas, o
   // canceladas cuya devolución todavía no llegó a Aronium.
@@ -421,11 +422,59 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
     }
   }
 
-  if (priceUpdates.length || barcodeUpdates.length) {
+  // La tienda no acepta un código de barras repetido entre variantes. Si en
+  // Aronium dos productos tienen el mismo, este queda sin código en la tienda
+  // (en vez de frenar toda la sincronización) y se avisa en los cambios.
+  const allMissingItems = items.filter((i) => !bySku.has(i.code) && i.enabled)
+  const createBarcodes = allMissingItems.slice(0, MAX_CREATE_PER_PASS).flatMap((i) => {
+    const b = firstBarcode(i)
+    return b ? [{ id: null as string | null, code: i.code, barcode: b }] : []
+  })
+  const wanted = [
+    ...barcodeUpdates.flatMap((u) => (u.barcode ? [{ id: u.id, code: skuOf.get(u.id) ?? '', barcode: u.barcode }] : [])),
+    ...createBarcodes,
+  ]
+  const inUse = await barcodesInUse(container, wanted.map((w) => w.barcode))
+  const claimed = new Map<string, string>()
+  const rejectedBarcode = new Set<string>()
+  for (const w of wanted) {
+    const owner = inUse.get(w.barcode)
+    const other = owner && owner.id !== w.id ? owner.sku : claimed.get(w.barcode)
+    if (other !== undefined) {
+      rejectedBarcode.add(w.code)
+      const variant = bySku.get(w.code)
+      changes.push({
+        code: w.code,
+        product_id: variant?.product?.id,
+        product_title: variant?.product?.title,
+        field: 'content',
+        new_value: `código de barras ${w.barcode} no copiado: ya lo tiene ${other || 'otro producto'}`,
+      })
+    } else claimed.set(w.barcode, w.code)
+  }
+  // Los que no se copiaron no quedan como "ya copiados": así se toman solos
+  // cuando se corrija en Aronium.
+  for (const code of rejectedBarcode) {
+    const p = bySku.get(code)?.product
+    const patch = p && productUpdates.get(p.id)
+    if (!p || !patch) continue
+    const next = { ...(patch.metadata.aronium_synced as Synced) }
+    const prev = syncedOf(p).barcode
+    if (prev === undefined) delete next.barcode
+    else next.barcode = prev
+    patch.metadata = { ...patch.metadata, aronium_synced: next }
+    const change = changes.find((c) => c.code === code && c.field === 'content' && !c.new_value?.startsWith('código de barras '))
+    if (change?.new_value) change.new_value = change.new_value.split(', ').filter((f) => f !== 'código de barras').join(', ')
+  }
+  const emptied = changes.filter((c) => c.field === 'content' && c.new_value === '')
+  for (const c of emptied) changes.splice(changes.indexOf(c), 1)
+  const barcodeOk = barcodeUpdates.filter((u) => !u.barcode || !rejectedBarcode.has(skuOf.get(u.id) ?? ''))
+
+  if (priceUpdates.length || barcodeOk.length) {
     // Reemplaza solo los precios base: los de la lista "Ofertas" no se tocan.
     const byId = new Map<string, Record<string, unknown>>()
     for (const u of priceUpdates) byId.set(u.id, { ...(byId.get(u.id) ?? {}), ...u })
-    for (const u of barcodeUpdates) byId.set(u.id, { ...(byId.get(u.id) ?? {}), ...u })
+    for (const u of barcodeOk) byId.set(u.id, { ...(byId.get(u.id) ?? {}), ...u })
     await updateProductVariantsWorkflow(container).run({ input: { product_variants: [...byId.values()] as any } })
   }
   const ready = await withCategory(container, publishCandidates.map((c) => c.product.id))
@@ -442,11 +491,11 @@ async function applySnapshot(container: MedusaContainer, input: AroniumItem[], k
   // Altas de a MAX_CREATE_PER_PASS: la primera pasada con todo el catálogo
   // (miles) no entra en el tiempo de una respuesta. Las que esperan vuelven en
   // refresh_codes y el agente las manda en la pasada siguiente.
-  const allMissing = items.filter((i) => !bySku.has(i.code) && i.enabled)
+  const allMissing = allMissingItems
   const missing = allMissing.slice(0, MAX_CREATE_PER_PASS)
   const postponed = allMissing.slice(MAX_CREATE_PER_PASS).map((i) => i.code)
   if (missing.length) {
-    const created = await createDraftProducts(container, missing)
+    const created = await createDraftProducts(container, missing, rejectedBarcode)
     for (const c of created) {
       changes.push({ code: c.code, product_id: c.product_id, product_title: c.title, field: 'created', new_value: String(c.stock) })
       if (c.inventory_item_id) {
@@ -848,7 +897,29 @@ async function findVariants(container: MedusaContainer, skus: string[]): Promise
   return rows
 }
 
-async function createDraftProducts(container: MedusaContainer, items: AroniumItem[]) {
+function firstBarcode(item: AroniumItem) {
+  return item.barcodes?.find((b) => b.trim())?.trim() ?? ''
+}
+
+/** Códigos de barras que ya tiene alguna variante de la tienda: código → variante. */
+async function barcodesInUse(container: MedusaContainer, barcodes: string[]) {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const unique = [...new Set(barcodes)]
+  const owners = new Map<string, { id: string; sku: string }>()
+  for (let i = 0; i < unique.length; i += SKU_CHUNK) {
+    const { data } = await query.graph({
+      entity: 'product_variant',
+      fields: ['id', 'sku', 'barcode'],
+      filters: { barcode: unique.slice(i, i + SKU_CHUNK) },
+    })
+    for (const v of data as { id: string; sku: string | null; barcode: string | null }[]) {
+      if (v.barcode) owners.set(v.barcode, { id: v.id, sku: v.sku ?? '' })
+    }
+  }
+  return owners
+}
+
+async function createDraftProducts(container: MedusaContainer, items: AroniumItem[], noBarcode: Set<string> = new Set()) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
 
   const { data: salesChannels } = await query.graph({ entity: 'sales_channel', fields: ['id'] })
@@ -873,8 +944,10 @@ async function createDraftProducts(container: MedusaContainer, items: AroniumIte
         const extra = found.extraCategories.map((c) => categoryId.get(c)).filter((id): id is string => Boolean(id))
         const values = toMetadataValues(parseAroniumContent(item.name, item.description))
         if (found.type && NO_COLOR_TYPES.has(found.type)) values.color = ''
-        const barcode = item.barcodes?.find((b) => b.trim())?.trim() ?? ''
-        const synced: Synced = { ...values, ...(item.barcodes ? { barcode } : {}) }
+        // Repetido con otro producto: se crea sin código (se reintenta solo
+        // cuando se corrija en Aronium).
+        const barcode = noBarcode.has(item.code) ? '' : firstBarcode(item)
+        const synced: Synced = { ...values, ...(item.barcodes && !noBarcode.has(item.code) ? { barcode } : {}) }
         return {
           title: item.name,
           handle: handles.get(item.code)!,
