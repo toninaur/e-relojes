@@ -79,11 +79,20 @@ try {
     done.push(`Envío (código ${code}, "${shipping.Name}"): marcado como servicio (sin stock).`)
   } else {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19)
-    db.prepare(
-      `INSERT INTO Product (Name, Code, Price, IsTaxInclusivePrice, IsPriceChangeAllowed, IsService, IsUsingDefaultQuantity,
-         IsEnabled, Cost, Markup, Color, DateCreated, DateUpdated)
-       VALUES ('Envío', ?, 0, 1, 1, 1, 1, 1, 0, 0, 'Transparent', ?, ?)`
-    ).run(code, now, now)
+    // Como los servicios de delivery de la caja: con PLU (sin PLU, el
+    // administrador de Aronium da "Error al cargar productos" y no abre),
+    // en su mismo grupo y con su mismo IVA.
+    const ref = db
+      .prepare("SELECT Id, ProductGroupId FROM Product WHERE IsService = 1 AND PLU IS NOT NULL AND Name LIKE 'Delivery%' ORDER BY Id LIMIT 1")
+      .get()
+    const res = db
+      .prepare(
+        `INSERT INTO Product (ProductGroupId, Name, Code, PLU, Price, IsTaxInclusivePrice, IsPriceChangeAllowed, IsService, IsUsingDefaultQuantity,
+           IsEnabled, Cost, Markup, Color, DateCreated, DateUpdated)
+         VALUES (?, 'Envío', ?, (SELECT coalesce(max(PLU), 0) + 1 FROM Product), 0, 1, 1, 1, 1, 1, 0, 0, 'Transparent', ?, ?)`
+      )
+      .run(ref?.ProductGroupId ?? null, code, now, now)
+    if (ref) db.prepare('INSERT INTO ProductTax (ProductId, TaxId) SELECT ?, TaxId FROM ProductTax WHERE ProductId = ?').run(Number(res.lastInsertRowid), ref.Id)
     done.push(`Envío (código ${code}): creado como servicio.`)
   }
 
