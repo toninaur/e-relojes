@@ -124,7 +124,7 @@ const ContimarketPage = () => {
           </div>
         )}
         <div className="grid grid-cols-2 gap-4 px-6 py-4 md:grid-cols-4">
-          <Fact label="Productos en ContiMarket" value={String(status.products_ok)} />
+          <Fact label="Aceptados por ContiMarket" value={String(status.products_ok)} />
           <Fact label="Rechazados" value={String(status.products_rejected)} />
           <Fact label="Último envío" value={formatDate(s.last_run_at)} />
           <Fact label="Último envío completo" value={formatDate(s.last_full_at)} />

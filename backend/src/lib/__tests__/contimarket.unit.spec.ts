@@ -145,4 +145,8 @@ describe('ContiMarket: cliente HTTP', () => {
     expect(credentialsFromEnv({ CONTIMARKET_URL: 'https://x', CONTIMARKET_USER: 'a' })).toBeNull()
     expect(credentialsFromEnv({ CONTIMARKET_URL: 'https://x/', CONTIMARKET_USER: 'a', CONTIMARKET_PASSWORD: 'b' })).toEqual({ url: 'https://x', user: 'a', password: 'b' })
   })
+
+  it('una URL sin protocolo se completa con https://', () => {
+    expect(credentialsFromEnv({ CONTIMARKET_URL: ' www.contimarket.com/ ', CONTIMARKET_USER: 'a', CONTIMARKET_PASSWORD: 'b' })?.url).toBe('https://www.contimarket.com')
+  })
 })

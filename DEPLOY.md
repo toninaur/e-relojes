@@ -59,6 +59,22 @@ poco tráfico anda en USD 5–15/mes.
 
    Después se enciende en el panel → ContiMarket. Ver
    [docs/conector-contimarket.md](docs/conector-contimarket.md).
+
+   **Aviso de pedidos por mail** (opcional; sin estas dos, no se manda nada):
+
+   ```
+   RESEND_API_KEY=<clave de resend.com, empieza con re_>
+   ORDER_EMAIL_TO=<gmail del local; varios separados por coma>
+   ORDER_EMAIL_FROM=<opcional: "E-Relojes <pedidos@dominio>">
+   ```
+
+   Sin dominio propio verificado en Resend, el remitente es
+   `onboarding@resend.dev` y Resend **solo deja mandar al email con el que se
+   creó la cuenta de Resend**: crear la cuenta con el mismo gmail que va en
+   `ORDER_EMAIL_TO`. Cada pedido nuevo manda un mail con el cliente, los
+   productos, el total y el link al pedido en el panel; responder el mail le
+   escribe al cliente. Si falla, el pedido sigue igual y queda
+   `[pedido-mail]` en los logs (`lib/order-email.ts`).
 4. **Volumen para las fotos:** clic derecho en el servicio → *Attach Volume* →
    mount path `/app/backend/.medusa/server/static`. Sin volumen, las fotos se
    pierden en cada deploy.

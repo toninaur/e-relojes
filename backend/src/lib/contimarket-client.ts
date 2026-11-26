@@ -23,7 +23,10 @@ export function credentialsFromEnv(env: NodeJS.ProcessEnv = process.env): Contim
   const user = (env.CONTIMARKET_USER ?? '').trim()
   const password = env.CONTIMARKET_PASSWORD ?? ''
   if (!url || !user || !password) return null
-  return { url: url.replace(/\/+$/, ''), user, password }
+  // Tolera que en Railway carguen "www.contimarket.com" sin https://
+  // (fetch no acepta una URL sin protocolo: "Failed to parse URL").
+  const withScheme = /^https?:\/\//i.test(url) ? url : `https://${url}`
+  return { url: withScheme.replace(/\/+$/, ''), user, password }
 }
 
 export function createContimarketClient(credentials: ContimarketCredentials, fetchImpl: typeof fetch = fetch) {
