@@ -182,7 +182,7 @@ export function buildPayload(order: OrderRow): WebSalePayload {
   }
 }
 
-async function loadOrder(container: MedusaContainer, orderId: string): Promise<OrderRow | null> {
+export async function loadOrder(container: MedusaContainer, orderId: string): Promise<OrderRow | null> {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const { data } = await query.graph({ entity: 'order', fields: ORDER_FIELDS, filters: { id: orderId } })
   return (data[0] as OrderRow) ?? null
